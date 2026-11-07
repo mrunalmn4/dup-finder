@@ -1,5 +1,7 @@
 use dup_finder_app::{AppSession, DeleteRequestDto, ScanRequest, ScanResponse};
-use dup_finder_engine::{DeleteReport, SuggestReport};
+use dup_finder_engine::{
+    list_suggested_locations, DeleteReport, SuggestReport, SuggestedLocation,
+};
 use std::sync::Arc;
 use tauri::State;
 
@@ -10,6 +12,11 @@ struct DesktopState {
 #[tauri::command]
 fn health() -> String {
     "ok".into()
+}
+
+#[tauri::command]
+fn list_locations() -> Vec<SuggestedLocation> {
+    list_suggested_locations()
 }
 
 #[tauri::command]
@@ -54,7 +61,13 @@ pub fn run() {
         .manage(DesktopState {
             session: Arc::new(AppSession::new()),
         })
-        .invoke_handler(tauri::generate_handler![health, scan, suggest, delete])
+        .invoke_handler(tauri::generate_handler![
+            health,
+            list_locations,
+            scan,
+            suggest,
+            delete
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Dup Finder desktop");
 }

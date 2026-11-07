@@ -11,10 +11,19 @@ export function FoldersDemo({ desktop }: { desktop: boolean }) {
         </div>
         <div className="demo-body">
           <div className="demo-title">Where should we look?</div>
-          <div className="demo-btn pulse">{desktop ? "Choose folders…" : "Add sample folder"}</div>
+          <div className="demo-tiles">
+            <div className={`demo-tile${desktop ? " on pulse" : ""}`}>
+              <em>Drive</em>
+              <strong>{desktop ? "D:" : "—"}</strong>
+            </div>
+            <div className="demo-tile on pulse">
+              <em>Folder</em>
+              <strong>{desktop ? "Pictures" : "Sample"}</strong>
+            </div>
+          </div>
           <div className="demo-card slide-in">
-            <strong>{desktop ? "Pictures" : "fixtures"}</strong>
-            <span>{desktop ? "C:\\Users\\You\\Pictures" : "/app/docker/fixtures"}</span>
+            <strong>{desktop ? "Pictures + D:" : "fixtures"}</strong>
+            <span>{desktop ? "2 places selected" : "/app/docker/fixtures"}</span>
           </div>
           <div className="demo-cursor" />
         </div>

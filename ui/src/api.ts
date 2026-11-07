@@ -96,14 +96,20 @@ export function loadConnection() {
   return { api: baseUrl(), token: token() };
 }
 
-/** Native folder picker (desktop). Supports multi-select when the OS dialog allows it. */
+export type SuggestedLocation = {
+  path: string;
+  label: string;
+  kind: "drive" | "volume" | "folder" | string;
+};
+
+/** Native multi-folder / drive picker (desktop Tauri only). */
 export async function pickFolders(): Promise<string[]> {
   if (!isTauri()) return [];
   const { open } = await import("@tauri-apps/plugin-dialog");
   const selected = await open({
     directory: true,
     multiple: true,
-    title: "Choose folders to scan",
+    title: "Choose folders or drives to scan",
   });
   if (selected == null) return [];
   if (typeof selected === "string") return [selected];
@@ -121,15 +127,37 @@ export function folderLabel(path: string): string {
   const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
   const parts = norm.split("/").filter(Boolean);
   if (parts.length === 0) return path;
-  // Windows drive root: C:
   if (/^[a-zA-Z]:$/.test(parts[0]) && parts.length === 1) return `${parts[0]}\\`;
   return parts[parts.length - 1] || path;
+}
+
+export function locationKindLabel(kind: string): string {
+  switch (kind) {
+    case "drive":
+      return "Drive";
+    case "volume":
+      return "Disk";
+    case "folder":
+      return "Folder";
+    default:
+      return "Place";
+  }
 }
 
 export const client = {
   health: async () => {
     if (isTauri()) return invokeTauri<string>("health");
     return fetch(`${baseUrl()}/health`).then((r) => r.text());
+  },
+  locations: async (): Promise<SuggestedLocation[]> => {
+    if (isTauri()) {
+      return invokeTauri<SuggestedLocation[]>("list_locations");
+    }
+    try {
+      return await api<SuggestedLocation[]>("/v1/locations");
+    } catch {
+      return [];
+    }
   },
   scan: async (roots: string[], index_path?: string) => {
     if (isTauri()) {

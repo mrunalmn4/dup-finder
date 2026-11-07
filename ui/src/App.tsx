@@ -5,11 +5,13 @@ import {
   formatBytes,
   isTauri,
   loadConnection,
+  locationKindLabel,
   pickFolders,
   saveConnection,
   type DeleteReport,
   type FileCaution,
   type FileRecord,
+  type SuggestedLocation,
   type SuggestReport,
 } from "./api";
 import HelpGuide from "./HelpGuide";
@@ -43,6 +45,8 @@ export default function App() {
     desktop ? "" : "/app/docker/fixtures",
   );
   const [roots, setRoots] = useState<string[]>([]);
+  const [locations, setLocations] = useState<SuggestedLocation[]>([]);
+  const [locationsError, setLocationsError] = useState<string | null>(null);
   const [indexPath, setIndexPath] = useState(
     desktop ? "" : "/app/artifacts/ui-index.sqlite",
   );
@@ -106,9 +110,26 @@ export default function App() {
       .map((o) => ({ path: o.path, reason: o.reason }));
   }, [deleteReport]);
 
+  const loadLocations = useCallback(async () => {
+    setLocationsError(null);
+    try {
+      const locs = await client.locations();
+      setLocations(locs);
+      if (locs.length === 0 && !desktop) {
+        setLocationsError(
+          "No places listed yet. Save & connect in Settings so we can show folders on the API machine, or type a path below.",
+        );
+      }
+    } catch (e) {
+      setLocations([]);
+      setLocationsError(e instanceof Error ? e.message : String(e));
+    }
+  }, [desktop]);
+
   useEffect(() => {
     if (desktop) {
       setConnected(true);
+      void loadLocations();
       return;
     }
     let cancelled = false;
@@ -116,7 +137,10 @@ export default function App() {
       try {
         saveConnection(apiUrl, token);
         const h = await client.health();
-        if (!cancelled && h === "ok" && token) setConnected(true);
+        if (!cancelled && h === "ok" && token) {
+          setConnected(true);
+          await loadLocations();
+        }
       } catch {
         if (!cancelled) {
           setConnected(false);
@@ -143,6 +167,7 @@ export default function App() {
       }
       setConnected(true);
       setSettingsOpen(false);
+      await loadLocations();
     } catch (e) {
       setConnected(false);
       setError(e instanceof Error ? e.message : String(e));
@@ -170,10 +195,23 @@ export default function App() {
     });
   }
 
-  function addDemoFolder() {
-    const demo = "/app/docker/fixtures";
-    if (!roots.includes(demo)) setRoots((r) => [...r, demo]);
+  function toggleLocation(path: string) {
+    setRoots((r) => (r.includes(path) ? r.filter((x) => x !== path) : [...r, path]));
   }
+
+  const customRoots = useMemo(() => {
+    const known = new Set(locations.map((l) => l.path));
+    return roots.filter((r) => !known.has(r));
+  }, [roots, locations]);
+
+  const driveLocations = useMemo(
+    () => locations.filter((l) => l.kind === "drive" || l.kind === "volume"),
+    [locations],
+  );
+  const folderLocations = useMemo(
+    () => locations.filter((l) => l.kind !== "drive" && l.kind !== "volume"),
+    [locations],
+  );
 
   function finishOnboarding() {
     localStorage.setItem(ONBOARD_KEY, "1");
@@ -435,38 +473,102 @@ export default function App() {
         <section className="panel">
           <h2>Where should we look?</h2>
           <p className="meta" style={{ marginBottom: "1rem" }}>
-            Pick one or more folders. We only scan what you select — never your
-            whole computer by surprise.
+            Tap drives and folders to select them (you can pick several). We only
+            scan what you turn on.
           </p>
 
           <div className="chooser" data-tour="tour-folders">
-            {desktop ? (
-              <button
-                type="button"
-                className="primary chooser-main"
-                onClick={browseRoot}
-              >
-                Choose folders…
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="primary chooser-main"
-                onClick={addDemoFolder}
-              >
-                Add sample folder (Docker demo)
-              </button>
+            {driveLocations.length > 0 && (
+              <>
+                <h3 className="loc-heading">Drives &amp; disks</h3>
+                <div className="loc-grid" role="group" aria-label="Drives and disks">
+                  {driveLocations.map((loc) => {
+                    const on = roots.includes(loc.path);
+                    return (
+                      <button
+                        key={loc.path}
+                        type="button"
+                        className={`loc-tile${on ? " loc-on" : ""}`}
+                        aria-pressed={on}
+                        onClick={() => toggleLocation(loc.path)}
+                      >
+                        <span className="loc-kind">{locationKindLabel(loc.kind)}</span>
+                        <strong className="loc-label">{loc.label}</strong>
+                        <span className="loc-path">{loc.path}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             )}
+
+            {folderLocations.length > 0 && (
+              <>
+                <h3 className="loc-heading">Folders</h3>
+                <div className="loc-grid" role="group" aria-label="Folders">
+                  {folderLocations.map((loc) => {
+                    const on = roots.includes(loc.path);
+                    return (
+                      <button
+                        key={loc.path}
+                        type="button"
+                        className={`loc-tile${on ? " loc-on" : ""}`}
+                        aria-pressed={on}
+                        onClick={() => toggleLocation(loc.path)}
+                      >
+                        <span className="loc-kind">{locationKindLabel(loc.kind)}</span>
+                        <strong className="loc-label">{loc.label}</strong>
+                        <span className="loc-path">{loc.path}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {locationsError && <p className="meta">{locationsError}</p>}
+
+            {!desktop && locations.length === 0 && (
+              <p className="empty-hint">
+                Connect the local API (Settings) to list places on that machine.
+                Docker demo path:{" "}
+                <button
+                  type="button"
+                  className="linkish"
+                  style={{ marginTop: 0, display: "inline" }}
+                  onClick={() => toggleLocation("/app/docker/fixtures")}
+                >
+                  /app/docker/fixtures
+                </button>
+                . Full drive picking needs the desktop app.
+              </p>
+            )}
+
+            <div className="row" style={{ marginTop: "0.85rem" }}>
+              {desktop && (
+                <button type="button" className="primary" onClick={browseRoot}>
+                  Browse for more…
+                </button>
+              )}
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void loadLocations()}
+                disabled={!desktop && !connected}
+              >
+                Refresh list
+              </button>
+            </div>
             <p className="meta chooser-hint">
               {desktop
-                ? "You can select multiple folders or a whole drive (for example D:\\ on Windows)."
-                : "Browsers cannot open your real disks for security. Use the desktop app to pick folders visually, or add a path below."}
+                ? "Selected tiles are scanned. Use Browse for any other folder or whole drive."
+                : "Tiles come from the API computer (inside Docker that is the container). Your Mac/Windows drives appear in the desktop app."}
             </p>
           </div>
 
-          {roots.length > 0 ? (
+          {customRoots.length > 0 && (
             <ul className="folder-cards">
-              {roots.map((r) => (
+              {customRoots.map((r) => (
                 <li key={r} className="folder-card">
                   <div>
                     <strong className="folder-name">{folderLabel(r)}</strong>
@@ -482,8 +584,10 @@ export default function App() {
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="empty-hint">No folders yet — choose at least one to scan.</p>
+          )}
+
+          {roots.length === 0 && (
+            <p className="empty-hint">No places selected yet — tap at least one tile to scan.</p>
           )}
 
           <button
@@ -502,7 +606,7 @@ export default function App() {
                 onChange={(e) => setRootInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addRoot()}
                 placeholder={
-                  desktop ? "C:\\Users\\You\\Pictures" : "/app/docker/fixtures"
+                  desktop ? "D:\\Photos" : "/app/docker/fixtures"
                 }
                 aria-label="Folder path"
               />
@@ -538,7 +642,9 @@ export default function App() {
               disabled={busy || roots.length === 0}
               onClick={runScan}
             >
-              {busy ? "Scanning…" : `Scan ${roots.length || ""} folder${roots.length === 1 ? "" : "s"}`.trim()}
+              {busy
+                ? "Scanning…"
+                : `Scan ${roots.length || ""} place${roots.length === 1 ? "" : "s"}`.trim()}
             </button>
           </div>
         </section>

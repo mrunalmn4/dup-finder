@@ -31,8 +31,8 @@ export default function Onboarding({ desktop, onDone, onPrepare }: Props) {
       target: "tour-folders",
       title: "Choose folders to scan",
       body: desktop
-        ? "Use this button to pick Pictures, Downloads, or a whole drive. We only look where you choose."
-        : "In the desktop app this opens a folder picker. Here, use the sample folder or type a path the API can see.",
+        ? "Tap drive and folder tiles to select them (several at once). Browse for more if you need another path."
+        : "Tap the tiles listed from the API machine. Connect in Settings first. Your real Mac/Windows drives need the desktop app.",
     },
     {
       target: "tour-scan",

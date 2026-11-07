@@ -7,7 +7,7 @@ use dup_finder_app::{
     AppSession, CreateJobRequest, DeleteRequestDto, JobStore, ScanRequest, ScanResponse,
     ScheduledJob,
 };
-use dup_finder_engine::{DeleteReport, ScanResult, SuggestReport};
+use dup_finder_engine::{DeleteReport, ScanResult, SuggestReport, SuggestedLocation, list_suggested_locations};
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -112,6 +112,14 @@ fn map_err(e: String) -> (StatusCode, String) {
 
 async fn health() -> &'static str {
     "ok"
+}
+
+async fn locations(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<SuggestedLocation>>, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    Ok(Json(list_suggested_locations()))
 }
 
 async fn scan(
@@ -242,6 +250,7 @@ pub async fn run_server(
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/v1/locations", get(locations))
         .route("/v1/scan", post(scan))
         .route("/v1/scans/{scan_id}", get(get_scan))
         .route("/v1/suggest", post(suggest))

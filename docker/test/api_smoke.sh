@@ -11,6 +11,9 @@ CODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json
 test "${CODE}" = "401"
 echo "unauthorized_ok"
 
+LOCS=$(curl -sf -H "$AUTH" "${API}/v1/locations")
+python3 -c "import json,sys; d=json.load(sys.stdin); assert isinstance(d,list); assert any('fixtures' in x.get('path','') or x.get('label')=='Sample files (demo)' for x in d); print('locations_ok', len(d))" <<<"$LOCS"
+
 SCAN=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"roots":["/app/docker/fixtures"],"index_path":"/app/artifacts/api-smoke.sqlite"}' \
   "${API}/v1/scan")

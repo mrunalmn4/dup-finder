@@ -42,12 +42,13 @@ export default function HelpGuide({ desktop, onClose, onStartTour }: Props) {
           </button>
         </div>
 
-        <h3>1. Choose folders</h3>
+        <h3>1. Choose folders &amp; drives</h3>
         <FoldersDemo desktop={desktop} />
         <p className="help-p">
-          We never scan your whole computer unless you pick those locations. On
-          Windows use drive letters (D:\Photos). On Mac/Linux use folders or
-          volumes (/Volumes/Backup).
+          Tap tiles under Drives &amp; disks or Folders — you can select several.
+          On Windows that includes D:\, E:\, and so on. On Mac, external disks
+          under /Volumes. Browse for more in the desktop app. We never scan
+          anything you did not select.
         </p>
 
         <h3>2. Review duplicates</h3>
