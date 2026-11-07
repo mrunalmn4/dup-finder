@@ -3,13 +3,15 @@
 ## Artifacts (Docker on Mac)
 
 ```bash
-bash scripts/release/build-linux-docker.sh   # binary + SHA256SUMS + NOTICE + Cargo.lock inventory
+bash scripts/release/build-linux-docker.sh   # native arch binary + SHA256SUMS + NOTICE
+# PLATFORM=linux/amd64 bash scripts/release/build-linux-docker.sh   # optional cross-build
 bash scripts/release/sbom-syft.sh            # SPDX + CycloneDX (syft Docker image)
-bash scripts/release/package-deb.sh          # .deb from that binary
-bash scripts/release/package-rpm.sh          # .rpm from that binary (Rocky Linux container)
+bash scripts/release/package-deb.sh          # .deb (no apt; Python ar writer)
+bash scripts/release/package-rpm.sh          # .rpm (Rocky Linux container; needs network)
+bash scripts/release/make-dist.sh            # tarball under artifacts/dist/
 ```
 
-Outputs: `artifacts/release/`
+Outputs: `artifacts/release/` and `artifacts/dist/`
 
 ## Channels
 

@@ -56,7 +56,9 @@
 |----|----------|--------|--------|
 | P-01 | Docker release image `scan` fixtures | groups ≥ 1 | P |
 | P-02 | SHA256SUMS + NOTICE produced | Present in artifacts/release | P |
-| P-03 | deb package script | `package-deb.sh` ready | P (script) |
+| P-03 | deb package script | `package-deb.sh` ready | P (arm64 `.deb` built) |
 | P-04 | rpm package script | `package-rpm.sh` ready | P (script) |
 | P-05 | Syft SBOM (SPDX + CycloneDX) | `sbom-syft.sh` ready | P (script) |
 | P-06 | Cosign / notarize | Signed artifacts | B (org secrets) |
+| P-07 | Dist tarball | `make-dist.sh` + sha256 | P (arm64) |
+| P-08 | Linux amd64 binary | Cross-build smoke | P (QEMU scan fixtures) |
