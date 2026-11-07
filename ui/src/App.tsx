@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   client,
+  folderLabel,
   formatBytes,
   isTauri,
   loadConnection,
-  pickFolder,
+  pickFolders,
   saveConnection,
   type DeleteReport,
   type FileCaution,
   type FileRecord,
   type SuggestReport,
 } from "./api";
+import HelpGuide from "./HelpGuide";
+import Onboarding from "./Onboarding";
 import { cautionReasonLabel, keepReasonLabel } from "./suggestLabels";
 
 type Step = "roots" | "results" | "confirm";
@@ -21,10 +24,17 @@ const STEPS: { id: Step; label: string }[] = [
   { id: "confirm", label: "Confirm" },
 ];
 
+const ONBOARD_KEY = "dup.onboarding.v1";
+
 export default function App() {
   const desktop = isTauri();
   const initial = loadConnection();
   const [step, setStep] = useState<Step>("roots");
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => localStorage.getItem(ONBOARD_KEY) !== "1",
+  );
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [pathEntryOpen, setPathEntryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(!desktop && !initial.token);
   const [apiUrl, setApiUrl] = useState(initial.api);
   const [token, setToken] = useState(initial.token);
@@ -149,10 +159,25 @@ export default function App() {
   }
 
   async function browseRoot() {
-    const picked = await pickFolder();
-    if (picked && !roots.includes(picked)) {
-      setRoots((r) => [...r, picked]);
-    }
+    const picked = await pickFolders();
+    if (picked.length === 0) return;
+    setRoots((r) => {
+      const next = [...r];
+      for (const p of picked) {
+        if (!next.includes(p)) next.push(p);
+      }
+      return next;
+    });
+  }
+
+  function addDemoFolder() {
+    const demo = "/app/docker/fixtures";
+    if (!roots.includes(demo)) setRoots((r) => [...r, demo]);
+  }
+
+  function finishOnboarding() {
+    localStorage.setItem(ONBOARD_KEY, "1");
+    setShowOnboarding(false);
   }
 
   function selectAllReclaimable() {
@@ -288,23 +313,46 @@ export default function App() {
 
   return (
     <div className="app">
+      {showOnboarding && (
+        <Onboarding desktop={desktop} onDone={finishOnboarding} />
+      )}
+      {helpOpen && (
+        <HelpGuide desktop={desktop} onClose={() => setHelpOpen(false)} />
+      )}
+
       <header className="brand">
         <div className="brand-row">
           <h1>Dup Finder</h1>
-          {!desktop && (
+          <div className="header-actions">
             <button
               type="button"
               className="ghost settings-btn"
-              onClick={() => setSettingsOpen((o) => !o)}
-              aria-expanded={settingsOpen}
+              onClick={() => setHelpOpen(true)}
             >
-              Settings
+              Help
             </button>
-          )}
+            <button
+              type="button"
+              className="ghost settings-btn"
+              onClick={() => setShowOnboarding(true)}
+            >
+              Show tour
+            </button>
+            {!desktop && (
+              <button
+                type="button"
+                className="ghost settings-btn"
+                onClick={() => setSettingsOpen((o) => !o)}
+                aria-expanded={settingsOpen}
+              >
+                Settings
+              </button>
+            )}
+          </div>
         </div>
         <p>
-          Pick folders, review duplicates, preview exact paths, then trash only
-          what you confirm — re-verified before every remove.
+          Find duplicate files on your computer, review suggestions, and remove
+          only what you confirm.
         </p>
       </header>
 
@@ -365,46 +413,92 @@ export default function App() {
 
       {step === "roots" && (
         <section className="panel">
-          <h2>Scan folders</h2>
-          <div className="row">
-            <input
-              type="text"
-              value={rootInput}
-              onChange={(e) => setRootInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addRoot()}
-              placeholder="/path/to/folder"
-              aria-label="Root path"
-            />
-            <button type="button" className="ghost" onClick={addRoot}>
-              Add
-            </button>
-            {desktop && (
-              <button type="button" className="ghost" onClick={browseRoot}>
-                Browse…
+          <h2>Where should we look?</h2>
+          <p className="meta" style={{ marginBottom: "1rem" }}>
+            Pick one or more folders. We only scan what you select — never your
+            whole computer by surprise.
+          </p>
+
+          <div className="chooser">
+            {desktop ? (
+              <button
+                type="button"
+                className="primary chooser-main"
+                onClick={browseRoot}
+              >
+                Choose folders…
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="primary chooser-main"
+                onClick={addDemoFolder}
+              >
+                Add sample folder (Docker demo)
               </button>
             )}
+            <p className="meta chooser-hint">
+              {desktop
+                ? "You can select multiple folders or a whole drive (for example D:\\ on Windows)."
+                : "Browsers cannot open your real disks for security. Use the desktop app to pick folders visually, or add a path below."}
+            </p>
           </div>
-          <ul className="roots">
-            {roots.map((r) => (
-              <li key={r}>
-                <span>{r}</span>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setRoots((xs) => xs.filter((x) => x !== r))}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
+
+          {roots.length > 0 ? (
+            <ul className="folder-cards">
+              {roots.map((r) => (
+                <li key={r} className="folder-card">
+                  <div>
+                    <strong className="folder-name">{folderLabel(r)}</strong>
+                    <div className="path meta">{r}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost compact"
+                    onClick={() => setRoots((xs) => xs.filter((x) => x !== r))}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-hint">No folders yet — choose at least one to scan.</p>
+          )}
+
+          <button
+            type="button"
+            className="linkish"
+            onClick={() => setPathEntryOpen((o) => !o)}
+            aria-expanded={pathEntryOpen}
+          >
+            {pathEntryOpen ? "Hide path entry" : "Add folder by typing a path"}
+          </button>
+          {pathEntryOpen && (
+            <div className="row" style={{ marginTop: "0.65rem" }}>
+              <input
+                type="text"
+                value={rootInput}
+                onChange={(e) => setRootInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addRoot()}
+                placeholder={
+                  desktop ? "C:\\Users\\You\\Pictures" : "/app/docker/fixtures"
+                }
+                aria-label="Folder path"
+              />
+              <button type="button" className="ghost" onClick={addRoot}>
+                Add path
+              </button>
+            </div>
+          )}
+
           <button
             type="button"
             className="linkish"
             onClick={() => setAdvancedOpen((o) => !o)}
             aria-expanded={advancedOpen}
           >
-            {advancedOpen ? "Hide advanced" : "Advanced: resumable index"}
+            {advancedOpen ? "Hide advanced" : "Advanced: faster re-scan index"}
           </button>
           {advancedOpen && (
             <div className="row" style={{ marginTop: "0.65rem" }}>
@@ -424,7 +518,7 @@ export default function App() {
               disabled={busy || roots.length === 0}
               onClick={runScan}
             >
-              {busy ? "Scanning…" : "Scan"}
+              {busy ? "Scanning…" : `Scan ${roots.length || ""} folder${roots.length === 1 ? "" : "s"}`.trim()}
             </button>
           </div>
         </section>

@@ -18,6 +18,7 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Docker images | `dup-finder:release`, `dup-finder:release-amd64` |
 | API smoke | `docker/test/api_smoke.sh` |
 | S1-03 UI browser UAT | connect → roots → scan → dry-run confirm |
+| Layperson folder UX + onboarding/help | Choose folders / chips; first-run tour; Help guide |
 
 ## Explicitly deferred to runners / CI (next phase)
 

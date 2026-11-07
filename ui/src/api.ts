@@ -96,12 +96,34 @@ export function loadConnection() {
   return { api: baseUrl(), token: token() };
 }
 
-export async function pickFolder(): Promise<string | null> {
-  if (!isTauri()) return null;
+/** Native folder picker (desktop). Supports multi-select when the OS dialog allows it. */
+export async function pickFolders(): Promise<string[]> {
+  if (!isTauri()) return [];
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const selected = await open({ directory: true, multiple: false });
-  if (typeof selected === "string") return selected;
-  return null;
+  const selected = await open({
+    directory: true,
+    multiple: true,
+    title: "Choose folders to scan",
+  });
+  if (selected == null) return [];
+  if (typeof selected === "string") return [selected];
+  if (Array.isArray(selected)) return selected.filter((s) => typeof s === "string");
+  return [];
+}
+
+/** @deprecated use pickFolders */
+export async function pickFolder(): Promise<string | null> {
+  const all = await pickFolders();
+  return all[0] ?? null;
+}
+
+export function folderLabel(path: string): string {
+  const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const parts = norm.split("/").filter(Boolean);
+  if (parts.length === 0) return path;
+  // Windows drive root: C:
+  if (/^[a-zA-Z]:$/.test(parts[0]) && parts.length === 1) return `${parts[0]}\\`;
+  return parts[parts.length - 1] || path;
 }
 
 export const client = {
