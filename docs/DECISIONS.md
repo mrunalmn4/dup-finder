@@ -45,3 +45,6 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Force quarantine | `DUP_FINDER_FORCE_QUARANTINE=1` skips OS Trash (Docker API / restore tests) |
 | 2026-11-07 | Scan cancel | `cancel_flag` on engine; `POST /v1/scan/jobs/{id}/cancel`; job status `cancelled` |
 | 2026-11-07 | Content identity UX | Groups show BLAKE3 verify strip; Compare modal; delete still TOCTOU re-hashes |
+| 2026-11-07 | Live re-verify | `POST /v1/verify` re-hashes a group vs stored BLAKE3 |
+| 2026-11-07 | Similar images | Experimental dHash via `POST /v1/similar`; exact BLAKE3 remains primary |
+| 2026-11-07 | Appearance | Theme light/dark/system + density in Settings (`dup.theme.v1` / `dup.density.v1`) |

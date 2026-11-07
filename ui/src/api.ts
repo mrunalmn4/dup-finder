@@ -87,6 +87,24 @@ export type ScheduledJob = {
   last_reclaimable_bytes: number | null;
 };
 
+export type VerifyReport = {
+  expected_hash: string;
+  all_matched: boolean;
+  outcomes: {
+    path: string;
+    expected_hash: string;
+    live_hash: string | null;
+    matched: boolean;
+    error: string | null;
+  }[];
+};
+
+export type SimilarImageGroup = {
+  dhash: string;
+  paths: string[];
+  max_distance: number;
+};
+
 declare global {
   interface Window {
     __TAURI_INTERNALS__?: unknown;
@@ -345,6 +363,27 @@ export const client = {
     return api<SuggestReport>("/v1/suggest", {
       method: "POST",
       body: JSON.stringify({ scan_id }),
+    });
+  },
+  verifyGroup: async (scan_id: string, hash: string) => {
+    if (isTauri()) {
+      return invokeTauri<VerifyReport>("verify_group", { scan_id, hash });
+    }
+    return api<VerifyReport>("/v1/verify", {
+      method: "POST",
+      body: JSON.stringify({ scan_id, hash }),
+    });
+  },
+  similarImages: async (scan_id: string, threshold = 10) => {
+    if (isTauri()) {
+      return invokeTauri<SimilarImageGroup[]>("similar_images", {
+        scan_id,
+        threshold,
+      });
+    }
+    return api<SimilarImageGroup[]>("/v1/similar", {
+      method: "POST",
+      body: JSON.stringify({ scan_id, threshold }),
     });
   },
   delete: async (body: {

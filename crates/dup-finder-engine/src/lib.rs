@@ -12,6 +12,8 @@ pub mod model;
 pub mod path_caution;
 pub mod path_safe;
 pub mod quarantine;
+pub mod similar;
+pub mod verify;
 pub mod scan;
 pub mod suggest;
 
@@ -27,4 +29,6 @@ pub use scan::{
     scan_roots, scan_with_options, ProgressCallback, ScanOptions, ScanPhase, ScanProgress,
     ScanStats,
 };
+pub use similar::{find_similar_images, SimilarImageGroup};
 pub use suggest::{pick_keep, suggest_from_scan};
+pub use verify::{verify_paths_against_hash, VerifyPathOutcome, VerifyReport};

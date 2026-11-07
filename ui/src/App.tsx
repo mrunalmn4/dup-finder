@@ -12,8 +12,10 @@ import {
   type QuarantinedFile,
   type ScanProgress,
   type ScheduledJob,
+  type SimilarImageGroup,
   type SuggestedLocation,
   type SuggestReport,
+  type VerifyReport,
 } from "./api";
 import { exportSuggestCsv, exportSuggestJson } from "./exportReport";
 import CompareModal from "./CompareModal";
@@ -40,6 +42,14 @@ import {
   saveSetupMode,
   type SetupMode,
 } from "./setupMode";
+import {
+  loadDensity,
+  loadTheme,
+  saveDensity,
+  saveTheme,
+  type Density,
+  type ThemeMode,
+} from "./theme";
 import {
   filtersForApi,
   formatSizeInput,
@@ -170,6 +180,13 @@ export default function App() {
     hash: string;
     other: FileRecord;
   } | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadTheme());
+  const [density, setDensity] = useState<Density>(() => loadDensity());
+  const [verifyByHash, setVerifyByHash] = useState<Record<string, VerifyReport>>(
+    {},
+  );
+  const [similarGroups, setSimilarGroups] = useState<SimilarImageGroup[]>([]);
+  const [similarBusy, setSimilarBusy] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>("reclaimable");
   const [cautionFilter, setCautionFilter] = useState<CautionFilter>("all");
@@ -505,6 +522,14 @@ export default function App() {
     if (common.length > 0) setRoots(common);
   }, [setupMode, locations, roots.length]);
 
+  useEffect(() => {
+    if (themeMode !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => saveTheme("system");
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [themeMode]);
+
   function updateFilters(patch: Partial<ScanFilters>) {
     setFilters((f) => {
       const next = { ...f, ...patch };
@@ -682,6 +707,8 @@ export default function App() {
         reused: job.stats?.hashes_reused ?? 0,
       });
       maybeNotifyReclaimable(sug.total_reclaimable_bytes);
+      setVerifyByHash({});
+      setSimilarGroups([]);
       setStep("results");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -689,6 +716,45 @@ export default function App() {
       setBusy(false);
       setScanProgress(null);
       setActiveJobId(null);
+    }
+  }
+
+  async function reverifyGroup(hash: string) {
+    if (!scanId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const report = await client.verifyGroup(scanId, hash);
+      setVerifyByHash((m) => ({ ...m, [hash]: report }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function findSimilar() {
+    if (!scanId) return;
+    setSimilarBusy(true);
+    setError(null);
+    try {
+      const groups = await client.similarImages(scanId, 10);
+      // Hide clusters that are already exact BLAKE3 groups of the same size
+      const exactPathSets = new Set(
+        (suggest?.groups || []).map((g) =>
+          [g.keep.path, ...g.delete_candidates.map((c) => c.path)].sort().join("\n"),
+        ),
+      );
+      setSimilarGroups(
+        groups.filter((g) => {
+          const key = [...g.paths].sort().join("\n");
+          return !exactPathSets.has(key);
+        }),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSimilarBusy(false);
     }
   }
 
@@ -934,6 +1000,56 @@ export default function App() {
               </p>
             </>
           )}
+          <h3 className="loc-heading">Appearance</h3>
+          <div className="seg-block" style={{ marginBottom: "0.75rem" }}>
+            <span className="seg-label">Theme</span>
+            <div className="seg" role="group" aria-label="Theme">
+              {(
+                [
+                  ["system", "System"],
+                  ["light", "Light"],
+                  ["dark", "Dark"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`seg-btn${themeMode === id ? " on" : ""}`}
+                  aria-pressed={themeMode === id}
+                  onClick={() => {
+                    setThemeMode(id);
+                    saveTheme(id);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="seg-block" style={{ marginBottom: "0.85rem" }}>
+            <span className="seg-label">Density</span>
+            <div className="seg" role="group" aria-label="Density">
+              {(
+                [
+                  ["comfortable", "Comfortable"],
+                  ["compact", "Compact"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`seg-btn${density === id ? " on" : ""}`}
+                  aria-pressed={density === id}
+                  onClick={() => {
+                    setDensity(id);
+                    saveDensity(id);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <h3 className="loc-heading">Notifications</h3>
           <label className="field-label" style={{ display: "block" }}>
             Notify when reclaimable ≥ (MB)
@@ -1375,11 +1491,32 @@ export default function App() {
                   Accept suggestion
                 </button>
               </div>
-              <p className="hash-verify ok" title={g.hash}>
-                Identical content verified (BLAKE3 {shortHash(g.hash)}) — every
-                file in this group matches byte-for-byte. Delete also re-checks
-                the hash before removing.
-              </p>
+              <div className="hash-verify-row">
+                <p className="hash-verify ok" title={g.hash}>
+                  Identical content verified (BLAKE3 {shortHash(g.hash)}) — every
+                  file in this group matches byte-for-byte. Delete also re-checks
+                  the hash before removing.
+                </p>
+                <button
+                  type="button"
+                  className="ghost compact"
+                  disabled={busy || !scanId}
+                  onClick={() => void reverifyGroup(g.hash)}
+                >
+                  Re-verify now
+                </button>
+              </div>
+              {verifyByHash[g.hash] && (
+                <p
+                  className={
+                    verifyByHash[g.hash].all_matched ? "ok meta" : "error"
+                  }
+                >
+                  {verifyByHash[g.hash].all_matched
+                    ? `Live re-hash OK — all ${verifyByHash[g.hash].outcomes.length} files still match.`
+                    : `Live re-hash found changes — ${verifyByHash[g.hash].outcomes.filter((o) => !o.matched).length} file(s) no longer match. Skip deleting those.`}
+                </p>
+              )}
               <div className="keep-row">
                 <Thumb path={g.keep.path} mime={g.keep.mime} />
                 <div className="keep-copy">
@@ -1477,6 +1614,45 @@ export default function App() {
               </ul>
             </div>
           )}
+          <div className="similar-panel">
+            <div className="panel-head">
+              <h3 className="loc-heading" style={{ margin: 0 }}>
+                Similar images (experimental)
+              </h3>
+              <button
+                type="button"
+                className="ghost compact"
+                disabled={!scanId || similarBusy}
+                onClick={() => void findSimilar()}
+              >
+                {similarBusy ? "Searching…" : "Find similar photos"}
+              </button>
+            </div>
+            <p className="meta">
+              Looks for near-duplicate photos by visual fingerprint (dHash) —
+              not the same as exact BLAKE3 matches above. Review carefully.
+            </p>
+            {similarGroups.length === 0 ? (
+              <p className="meta">No similar groups loaded yet (or none found).</p>
+            ) : (
+              <ul className="roots">
+                {similarGroups.map((sg) => (
+                  <li key={sg.dhash + sg.paths.join("|")}>
+                    <span className="meta">
+                      {sg.paths.length} images · max distance {sg.max_distance}
+                    </span>
+                    <ul className="roots">
+                      {sg.paths.map((p) => (
+                        <li key={p}>
+                          <span className="path">{showFullPaths ? p : friendlyPath(p)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="row" style={{ marginTop: "1rem" }}>
             <button type="button" className="ghost" onClick={() => setStep("roots")}>
               Back

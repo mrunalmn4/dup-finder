@@ -11,8 +11,8 @@ use dup_finder_app::{
     ScanResponse, ScheduledJob,
 };
 use dup_finder_engine::{
-    list_suggested_locations, DeleteReport, QuarantinedFile, ScanResult, SuggestReport,
-    SuggestedLocation,
+    list_suggested_locations, DeleteReport, QuarantinedFile, ScanResult, SimilarImageGroup,
+    SuggestReport, SuggestedLocation, VerifyReport,
 };
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -31,6 +31,23 @@ struct AppState {
 #[derive(Deserialize)]
 struct SuggestBody {
     scan_id: String,
+}
+
+#[derive(Deserialize)]
+struct VerifyBody {
+    scan_id: String,
+    hash: String,
+}
+
+#[derive(Deserialize)]
+struct SimilarBody {
+    scan_id: String,
+    #[serde(default = "default_similar_threshold")]
+    threshold: u32,
+}
+
+fn default_similar_threshold() -> u32 {
+    10
 }
 
 fn unauthorized() -> (StatusCode, String) {
@@ -259,6 +276,32 @@ async fn suggest(
         .map_err(map_err)
 }
 
+async fn verify_group(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<VerifyBody>,
+) -> Result<Json<VerifyReport>, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    state
+        .session
+        .verify_group(&body.scan_id, &body.hash)
+        .map(Json)
+        .map_err(map_err)
+}
+
+async fn similar_images(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SimilarBody>,
+) -> Result<Json<Vec<SimilarImageGroup>>, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    state
+        .session
+        .similar_images(&body.scan_id, body.threshold)
+        .map(Json)
+        .map_err(map_err)
+}
+
 async fn delete_paths(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -363,6 +406,8 @@ pub async fn run_server(
         .route("/v1/scan/jobs/{job_id}/cancel", post(scan_cancel))
         .route("/v1/scans/{scan_id}", get(get_scan))
         .route("/v1/suggest", post(suggest))
+        .route("/v1/verify", post(verify_group))
+        .route("/v1/similar", post(similar_images))
         .route("/v1/delete", post(delete_paths))
         .route("/v1/quarantine", get(quarantine_list))
         .route("/v1/restore", post(quarantine_restore))

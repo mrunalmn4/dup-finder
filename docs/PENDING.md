@@ -31,6 +31,7 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Session resume + Review polish | `dup.session.v1`; empty states; quick places; thumbs; quarantine undo toast |
 | Full local test matrix | `docker/test/full_matrix.sh` (fixtures, unit, UI, API, quarantine RT, CLI progress) |
 | Cancel / compare / meta / E2E | Scan cancel; Compare modal; FileMeta; custom checkboxes; Playwright `docker/test/e2e.sh` |
+| Re-verify / theme / similar | Live BLAKE3 re-verify; dark+density; experimental dHash similar images |
 
 ## Explicitly deferred to runners / CI (next phase)
 

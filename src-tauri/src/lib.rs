@@ -4,7 +4,7 @@ use dup_finder_app::{
 };
 use dup_finder_engine::{
     list_suggested_locations, DeleteReport, QuarantinedFile, ScanFilters, ScanResult,
-    SuggestReport, SuggestedLocation,
+    SimilarImageGroup, SuggestReport, SuggestedLocation, VerifyReport,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -79,6 +79,26 @@ fn get_scan(state: State<'_, DesktopState>, scan_id: String) -> Result<ScanResul
 #[tauri::command]
 fn suggest(state: State<'_, DesktopState>, scan_id: String) -> Result<SuggestReport, String> {
     state.session.suggest(&scan_id)
+}
+
+#[tauri::command]
+fn verify_group(
+    state: State<'_, DesktopState>,
+    scan_id: String,
+    hash: String,
+) -> Result<VerifyReport, String> {
+    state.session.verify_group(&scan_id, &hash)
+}
+
+#[tauri::command]
+fn similar_images(
+    state: State<'_, DesktopState>,
+    scan_id: String,
+    threshold: Option<u32>,
+) -> Result<Vec<SimilarImageGroup>, String> {
+    state
+        .session
+        .similar_images(&scan_id, threshold.unwrap_or(10))
 }
 
 #[tauri::command]
@@ -180,6 +200,8 @@ pub fn run() {
             scan_cancel,
             get_scan,
             suggest,
+            verify_group,
+            similar_images,
             delete,
             quarantine_list,
             quarantine_restore,

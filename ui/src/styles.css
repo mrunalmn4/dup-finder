@@ -1,4 +1,5 @@
-:root {
+:root,
+html[data-theme="light"] {
   --ink: #102a2a;
   --muted: #4a6565;
   --paper: #f3f7f6;
@@ -12,6 +13,46 @@
   --radius: 14px;
   --font: "Sora", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --bg-grad-a: #c9ebe4;
+  --bg-grad-b: #e7f0ff;
+  --bg-grad-c: #eef5f3;
+  --panel-bg: rgba(255, 255, 255, 0.72);
+  --control-bg: #fff;
+}
+
+html[data-theme="dark"] {
+  --ink: #e7f3f1;
+  --muted: #9bb5b1;
+  --paper: #0f1c1c;
+  --wash: #1a2e2c;
+  --line: #2f4a47;
+  --accent: #2dd4bf;
+  --accent-ink: #99f6e4;
+  --danger: #fb7185;
+  --keep: #4ade80;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  --bg-grad-a: #134e4a;
+  --bg-grad-b: #1e3a5f;
+  --bg-grad-c: #0f1c1c;
+  --panel-bg: rgba(22, 36, 35, 0.9);
+  --control-bg: #152624;
+}
+
+html[data-density="compact"] .app {
+  padding: 1.25rem 0 2.5rem;
+}
+
+html[data-density="compact"] .panel {
+  padding: 0.85rem 1rem;
+}
+
+html[data-density="compact"] .group {
+  padding: 0.65rem 0;
+}
+
+html[data-density="compact"] .thumb {
+  width: 56px;
+  height: 56px;
 }
 
 * {
@@ -29,9 +70,9 @@ body {
   color: var(--ink);
   font-family: var(--font);
   background:
-    radial-gradient(1200px 600px at 10% -10%, #c9ebe4 0%, transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, #e7f0ff 0%, transparent 50%),
-    linear-gradient(180deg, #eef5f3 0%, var(--paper) 40%, #e8f1ef 100%);
+    radial-gradient(1200px 600px at 10% -10%, var(--bg-grad-a) 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, var(--bg-grad-b) 0%, transparent 50%),
+    linear-gradient(180deg, var(--bg-grad-c) 0%, var(--paper) 40%, var(--paper) 100%);
 }
 
 .app {
@@ -841,7 +882,7 @@ button.compact {
 }
 
 .panel {
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--panel-bg);
   backdrop-filter: blur(10px);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1133,15 +1174,40 @@ button:disabled {
   color: var(--accent-ink);
 }
 
+.hash-verify-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0.35rem 0 0.5rem;
+}
+
 .hash-verify {
-  margin: 0.35rem 0 0.75rem;
+  flex: 1;
+  margin: 0;
   padding: 0.55rem 0.75rem;
   border-radius: 10px;
   font-size: 0.82rem;
   line-height: 1.45;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
+  background: color-mix(in srgb, var(--keep) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--keep) 35%, var(--line));
   color: var(--keep);
+}
+
+.similar-panel {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.mode-card,
+.review-controls {
+  background: var(--panel-bg);
+}
+
+select,
+.check-ui {
+  background-color: var(--control-bg);
 }
 
 .file-meta {

@@ -3,9 +3,10 @@ pub mod jobs;
 pub use jobs::{CreateJobRequest, JobStatus, JobStore, ScheduledJob};
 
 use dup_finder_engine::{
-    list_quarantine, restore_quarantined, safe_delete, scan_with_options, suggest_from_scan,
-    DeleteMode, DeleteReport, DeleteRequest, FsDeleteBackend, QuarantinedFile, ScanFilters,
-    ScanOptions, ScanPhase, ScanProgress, ScanResult, ScanStats, SuggestReport,
+    find_similar_images, list_quarantine, restore_quarantined, safe_delete, scan_with_options,
+    suggest_from_scan, verify_paths_against_hash, DeleteMode, DeleteReport, DeleteRequest,
+    FsDeleteBackend, QuarantinedFile, ScanFilters, ScanOptions, ScanPhase, ScanProgress,
+    ScanResult, ScanStats, SimilarImageGroup, SuggestReport, VerifyReport,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -222,6 +223,31 @@ impl AppSession {
     pub fn suggest(&self, scan_id: &str) -> Result<SuggestReport, String> {
         let scan = self.get_scan(scan_id)?;
         Ok(suggest_from_scan(&scan))
+    }
+
+    /// Live re-hash every path in a BLAKE3 group from the stored scan.
+    pub fn verify_group(&self, scan_id: &str, hash: &str) -> Result<VerifyReport, String> {
+        let scan = self.get_scan(scan_id)?;
+        let group = scan
+            .groups
+            .iter()
+            .find(|g| g.hash == hash)
+            .ok_or_else(|| "group not found".to_string())?;
+        let paths: Vec<PathBuf> = group.files.iter().map(|f| f.path.clone()).collect();
+        verify_paths_against_hash(&paths, hash).map_err(|e| e.to_string())
+    }
+
+    /// Experimental: similar images among scan records (not exact BLAKE3 dups).
+    pub fn similar_images(
+        &self,
+        scan_id: &str,
+        threshold: u32,
+    ) -> Result<Vec<SimilarImageGroup>, String> {
+        let scan = self.get_scan(scan_id)?;
+        let mut paths: Vec<PathBuf> = scan.records.iter().map(|r| r.path.clone()).collect();
+        paths.sort();
+        paths.dedup();
+        find_similar_images(&paths, threshold).map_err(|e| e.to_string())
     }
 
     pub fn delete(&self, req: DeleteRequestDto) -> Result<DeleteReport, String> {

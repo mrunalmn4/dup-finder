@@ -15,6 +15,7 @@ walkdir = { workspace = true }
 rusqlite = { workspace = true }
 trash = { workspace = true }
 rayon = { workspace = true }
+image = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -103,4 +103,15 @@ curl -sf -X POST -H "$AUTH" "${API}/v1/scan/jobs/${CJID}/cancel" -o /dev/null -w
 CST=$(curl -sf -H "$AUTH" "${API}/v1/scan/jobs/${CJID}")
 python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status'] in ('cancelled','ok','error','running'), d; print('cancel_probe_ok', d['status'])" <<<"$CST"
 
-echo "API smoke passed (scan/suggest/delete/jobs/async/quarantine/preview/cancel)"
+# Live re-verify exact group
+HASH=$(python3 -c "import json,sys; print(json.load(sys.stdin)['result']['groups'][0]['hash'])" <<<"$SCAN")
+VER=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"scan_id\":\"${ID}\",\"hash\":\"${HASH}\"}" "${API}/v1/verify")
+python3 -c "import json,sys; d=json.load(sys.stdin); assert d['all_matched']; print('verify_ok', len(d['outcomes']))" <<<"$VER"
+
+# Similar images (may be empty on text fixtures)
+SIM=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"scan_id\":\"${ID}\",\"threshold\":10}" "${API}/v1/similar")
+python3 -c "import json,sys; d=json.load(sys.stdin); assert isinstance(d,list); print('similar_ok', len(d))" <<<"$SIM"
+
+echo "API smoke passed (scan/suggest/delete/jobs/async/quarantine/preview/cancel/verify/similar)"
