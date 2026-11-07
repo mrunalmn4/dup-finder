@@ -10,7 +10,9 @@
 - [x] Syft SBOM (SPDX + CycloneDX) without secrets (`sbom-syft.sh`)
 - [x] Docker release image (`docker/Dockerfile.release`)
 - [x] Evidence pack index (`docs/evidence/`)
-- [ ] Run deb/rpm/sbom once and attach artifacts to a release tag (when remote exists)
+- [x] Syft SBOM run verified locally (`artifacts/release/sbom.*.json`)
+- [ ] deb/rpm package run once (scripts ready; apt/dnf pull can be slow on this Mac)
+- [ ] Attach artifacts to a release tag (when remote exists)
 
 ## Host / org follow-ons (blocked without secrets or OS toolchains)
 

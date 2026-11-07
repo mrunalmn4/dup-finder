@@ -4,7 +4,7 @@ Cross-platform duplicate file finder: scan chosen locations, detect content dupl
 
 ## Status
 
-**Product stack complete (v0.1):** engine + CLI + resumable index + fail-closed delete + suggest + localhost/`serve` daemon with scheduled jobs + React UI + Tauri shell + Docker release image/packaging scripts. See [docs/QUALITY.md](docs/QUALITY.md), [docs/DESKTOP.md](docs/DESKTOP.md), [docs/PACKAGING.md](docs/PACKAGING.md).
+**Product stack complete (v0.1):** engine + CLI + resumable index + fail-closed delete + suggest + localhost/`serve` daemon with scheduled jobs + React UI + Tauri shell + Docker release image/packaging scripts. See [docs/QUALITY.md](docs/QUALITY.md), [docs/DESKTOP.md](docs/DESKTOP.md), [docs/PACKAGING.md](docs/PACKAGING.md). **What's left:** [docs/PENDING.md](docs/PENDING.md).
 
 ## Locked direction
 
