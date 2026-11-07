@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   client,
-  folderLabel,
   formatBytes,
   isTauri,
   loadConnection,
-  locationKindLabel,
   pickFolders,
   saveConnection,
   type DeleteReport,
@@ -18,7 +16,9 @@ import {
   type SuggestReport,
 } from "./api";
 import { exportSuggestCsv, exportSuggestJson } from "./exportReport";
+import FoldersPanel from "./FoldersPanel";
 import HelpGuide from "./HelpGuide";
+import ModeChooser from "./ModeChooser";
 import Onboarding from "./Onboarding";
 import {
   deleteProfile,
@@ -33,19 +33,25 @@ import {
   type ViewMode,
 } from "./reviewView";
 import {
-  ALL_CATEGORIES,
-  CATEGORY_LABELS,
-  filterSummary,
+  clearSetupMode,
+  loadSetupMode,
+  saveSetupMode,
+  type SetupMode,
+} from "./setupMode";
+import {
   filtersForApi,
   formatSizeInput,
   loadFilters,
-  parseSizeInput,
   saveFilters,
-  sensibleFilters,
-  splitTags,
   type FileCategory,
   type ScanFilters,
 } from "./scanFilters";
+import {
+  clearSession,
+  loadSession,
+  saveSession,
+  sessionIsResumable,
+} from "./session";
 import { cautionReasonLabel, keepReasonLabel } from "./suggestLabels";
 import Thumb from "./Thumb";
 
@@ -59,12 +65,32 @@ const STEPS: { id: Step; label: string }[] = [
 
 const ONBOARD_KEY = "dup.onboarding.v1";
 
+function basenamePath(p: string): string {
+  const n = p.replace(/\\/g, "/");
+  const i = n.lastIndexOf("/");
+  return i < 0 ? n : n.slice(i + 1);
+}
+
+function friendlyPath(p: string): string {
+  const base = basenamePath(p);
+  const n = p.replace(/\\/g, "/");
+  const i = n.lastIndexOf("/");
+  const parent = i <= 0 ? "" : n.slice(0, i);
+  const parentBase = parent ? basenamePath(parent) : "";
+  return parentBase ? `${parentBase} / ${base}` : base;
+}
+
+const bootSession = (() => {
+  const s = loadSession();
+  return sessionIsResumable(s) ? s : null;
+})();
+
 export default function App() {
   const desktop = isTauri();
   const initial = loadConnection();
-  const [step, setStep] = useState<Step>("roots");
+  const [step, setStep] = useState<Step>(() => bootSession?.step ?? "roots");
   const [showOnboarding, setShowOnboarding] = useState(
-    () => localStorage.getItem(ONBOARD_KEY) !== "1",
+    () => localStorage.getItem(ONBOARD_KEY) !== "1" && !bootSession,
   );
   const [helpOpen, setHelpOpen] = useState(false);
   const [pathEntryOpen, setPathEntryOpen] = useState(false);
@@ -75,7 +101,7 @@ export default function App() {
   const [rootInput, setRootInput] = useState(
     desktop ? "" : "/app/docker/fixtures",
   );
-  const [roots, setRoots] = useState<string[]>([]);
+  const [roots, setRoots] = useState<string[]>(() => bootSession?.roots ?? []);
   const [locations, setLocations] = useState<SuggestedLocation[]>([]);
   const [locationsError, setLocationsError] = useState<string | null>(null);
   const [indexPath, setIndexPath] = useState(
@@ -98,17 +124,29 @@ export default function App() {
     formatSizeInput(loadFilters().max_size),
   );
   const [whatOpen, setWhatOpen] = useState(true);
-  const [scanId, setScanId] = useState<string | null>(null);
-  const [suggest, setSuggest] = useState<SuggestReport | null>(null);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [setupMode, setSetupMode] = useState<SetupMode | null>(() => loadSetupMode());
+  const [pickingMode, setPickingMode] = useState(
+    () => !bootSession && loadSetupMode() === null,
+  );
+  const [guidedSubstep, setGuidedSubstep] = useState(0);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
+  const [scanId, setScanId] = useState<string | null>(() => bootSession?.scanId ?? null);
+  const [suggest, setSuggest] = useState<SuggestReport | null>(
+    () => bootSession?.suggest ?? null,
+  );
+  const [selected, setSelected] = useState<Record<string, boolean>>(
+    () => bootSession?.selected ?? {},
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleteReport, setDeleteReport] = useState<DeleteReport | null>(null);
-  const [trashDone, setTrashDone] = useState(false);
+  const [deleteReport, setDeleteReport] = useState<DeleteReport | null>(
+    () => bootSession?.deleteReport ?? null,
+  );
+  const [trashDone, setTrashDone] = useState(() => bootSession?.trashDone ?? false);
   const [permanentOpen, setPermanentOpen] = useState(false);
   const [permanentPhrase, setPermanentPhrase] = useState("");
   const [deleteModeDone, setDeleteModeDone] = useState<"trash" | "permanent" | null>(
-    null,
+    () => bootSession?.deleteModeDone ?? null,
   );
   const [summary, setSummary] = useState<{
     scanned: number;
@@ -116,6 +154,10 @@ export default function App() {
     reclaimable: number;
     computed: number;
     reused: number;
+  } | null>(() => bootSession?.summary ?? null);
+  const [showFullPaths, setShowFullPaths] = useState(false);
+  const [undoToast, setUndoToast] = useState<{
+    originalPaths: string[];
   } | null>(null);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>("reclaimable");
@@ -336,6 +378,122 @@ export default function App() {
     );
   }
 
+  /** Mid-scan or Review/Confirm — do not show mode chooser. */
+  const canResumeActivity =
+    step === "results" ||
+    step === "confirm" ||
+    (busy && scanProgress != null) ||
+    sessionIsResumable(
+      scanId && suggest
+        ? {
+            v: 1,
+            step,
+            scanId,
+            suggest,
+            selected,
+            summary,
+            roots,
+            deleteReport,
+            trashDone,
+            deleteModeDone,
+            savedAt: Date.now(),
+          }
+        : null,
+    );
+
+  const showModeChooser =
+    step === "roots" &&
+    !showOnboarding &&
+    !canResumeActivity &&
+    (pickingMode || setupMode === null);
+
+  // Persist Review/Confirm so refresh can resume (API scan must still exist).
+  useEffect(() => {
+    if (step === "results" || step === "confirm") {
+      if (!scanId || !suggest) return;
+      saveSession({
+        v: 1,
+        step,
+        scanId,
+        suggest,
+        selected,
+        summary,
+        roots,
+        deleteReport,
+        trashDone,
+        deleteModeDone,
+        savedAt: Date.now(),
+      });
+      return;
+    }
+    if (step === "roots" && !scanId) clearSession();
+  }, [
+    step,
+    scanId,
+    suggest,
+    selected,
+    summary,
+    roots,
+    deleteReport,
+    trashDone,
+    deleteModeDone,
+  ]);
+
+  // If we restored a session, confirm the server/desktop still has the scan.
+  useEffect(() => {
+    if (!bootSession?.scanId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await client.getScan(bootSession.scanId!);
+      } catch {
+        if (cancelled) return;
+        clearSession();
+        setStep("roots");
+        setScanId(null);
+        setSuggest(null);
+        setSummary(null);
+        setDeleteReport(null);
+        setTrashDone(false);
+        setError("Previous scan expired on the server. Start a new scan.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function pickSetupMode(mode: SetupMode) {
+    saveSetupMode(mode);
+    setSetupMode(mode);
+    setPickingMode(false);
+    setGuidedSubstep(0);
+    setMoreOptionsOpen(false);
+    setWhatOpen(mode === "advanced");
+    setRestoreOpen(false);
+    if (mode === "smart") {
+      applyPreset("common");
+    }
+  }
+
+  function changeSetupMode() {
+    if (canResumeActivity || busy) return;
+    clearSetupMode();
+    setSetupMode(null);
+    setPickingMode(true);
+    setGuidedSubstep(0);
+    setMoreOptionsOpen(false);
+  }
+
+  // Smart mode: apply common folders once locations arrive if still empty.
+  useEffect(() => {
+    if (setupMode !== "smart" || roots.length > 0 || locations.length === 0) return;
+    const want = new Set(["Home", "Desktop", "Documents", "Downloads", "Pictures"]);
+    const common = locations.filter((l) => want.has(l.label)).map((l) => l.path);
+    if (common.length > 0) setRoots(common);
+  }, [setupMode, locations, roots.length]);
+
   function updateFilters(patch: Partial<ScanFilters>) {
     setFilters((f) => {
       const next = { ...f, ...patch };
@@ -469,6 +627,8 @@ export default function App() {
     setError(null);
     setDeleteReport(null);
     setTrashDone(false);
+    setUndoToast(null);
+    clearSession();
     setBusy(true);
     setScanProgress({
       phase: "walk",
@@ -542,6 +702,7 @@ export default function App() {
     if (!scanId || wouldDelete.length === 0) return;
     setError(null);
     setBusy(true);
+    const originals = [...wouldDelete];
     try {
       const report = await client.delete({
         scan_id: scanId,
@@ -554,6 +715,41 @@ export default function App() {
       setTrashDone(true);
       setDeleteModeDone("trash");
       setPermanentOpen(false);
+      const deleted = report.outcomes.filter(
+        (o) =>
+          o.kind === "deleted" ||
+          o.kind === "Deleted" ||
+          o.kind.toLowerCase() === "deleted",
+      );
+      if (deleted.length > 0) {
+        setUndoToast({ originalPaths: originals });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undoTrashFromQuarantine() {
+    if (!undoToast) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const list = await client.quarantineList(roots);
+      const wanted = new Set(undoToast.originalPaths.map(basenamePath));
+      let restored = 0;
+      for (const q of list) {
+        if (!wanted.has(q.name) && !wanted.has(basenamePath(q.path))) continue;
+        await client.quarantineRestore(q.path, roots);
+        restored += 1;
+      }
+      setUndoToast(null);
+      if (restored === 0) {
+        setError(
+          "Nothing to undo in Dup Finder quarantine (files may be in the system Trash).",
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -627,16 +823,27 @@ export default function App() {
             >
               Show tour
             </button>
-            {!desktop && (
-              <button
-                type="button"
-                className="ghost settings-btn"
-                onClick={() => setSettingsOpen((o) => !o)}
-                aria-expanded={settingsOpen}
-              >
-                Settings
-              </button>
-            )}
+            {step === "roots" &&
+              setupMode &&
+              !pickingMode &&
+              !canResumeActivity &&
+              !busy && (
+                <button
+                  type="button"
+                  className="ghost settings-btn"
+                  onClick={changeSetupMode}
+                >
+                  Change mode
+                </button>
+              )}
+            <button
+              type="button"
+              className="ghost settings-btn"
+              onClick={() => setSettingsOpen((o) => !o)}
+              aria-expanded={settingsOpen}
+            >
+              Settings
+            </button>
           </div>
         </div>
         <p>
@@ -838,581 +1045,109 @@ export default function App() {
         </section>
       )}
 
-      {step === "roots" && (
-        <section className="panel">
-          <h2>Where should we look?</h2>
-          <p className="meta" style={{ marginBottom: "1rem" }}>
-            Tap drives and folders to select them (you can pick several). We only
-            scan what you turn on.
-          </p>
+      {showModeChooser && <ModeChooser onPick={pickSetupMode} />}
 
-          <div className="chooser" data-tour="tour-folders">
-            {driveLocations.length > 0 && (
-              <>
-                <h3 className="loc-heading">Drives &amp; disks</h3>
-                <div className="loc-grid" role="group" aria-label="Drives and disks">
-                  {driveLocations.map((loc) => {
-                    const on = roots.includes(loc.path);
-                    return (
-                      <button
-                        key={loc.path}
-                        type="button"
-                        className={`loc-tile${on ? " loc-on" : ""}`}
-                        aria-pressed={on}
-                        onClick={() => toggleLocation(loc.path)}
-                      >
-                        <span className="loc-kind">{locationKindLabel(loc.kind)}</span>
-                        <strong className="loc-label">{loc.label}</strong>
-                        <span className="loc-path">{loc.path}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {folderLocations.length > 0 && (
-              <>
-                <h3 className="loc-heading">Folders</h3>
-                <div className="loc-grid" role="group" aria-label="Folders">
-                  {folderLocations.map((loc) => {
-                    const on = roots.includes(loc.path);
-                    return (
-                      <button
-                        key={loc.path}
-                        type="button"
-                        className={`loc-tile${on ? " loc-on" : ""}`}
-                        aria-pressed={on}
-                        onClick={() => toggleLocation(loc.path)}
-                      >
-                        <span className="loc-kind">{locationKindLabel(loc.kind)}</span>
-                        <strong className="loc-label">{loc.label}</strong>
-                        <span className="loc-path">{loc.path}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {locationsError && <p className="meta">{locationsError}</p>}
-
-            {!desktop && locations.length === 0 && (
-              <p className="empty-hint">
-                Connect the local API (Settings) to list places on that machine.
-                Docker demo path:{" "}
-                <button
-                  type="button"
-                  className="linkish"
-                  style={{ marginTop: 0, display: "inline" }}
-                  onClick={() => toggleLocation("/app/docker/fixtures")}
-                >
-                  /app/docker/fixtures
-                </button>
-                . Full drive picking needs the desktop app.
-              </p>
-            )}
-
-            <div className="preset-row" role="group" aria-label="Quick presets">
-              <span className="meta">Presets:</span>
-              <button type="button" className="ghost compact" onClick={() => applyPreset("common")}>
-                Common folders
-              </button>
-              <button type="button" className="ghost compact" onClick={() => applyPreset("disks")}>
-                Disks only
-              </button>
-              <button type="button" className="ghost compact" onClick={() => applyPreset("demo")}>
-                Sample demo
-              </button>
-              <button type="button" className="ghost compact" onClick={() => applyPreset("clear")}>
-                Clear
-              </button>
-            </div>
-
-            <div className="row" style={{ marginTop: "0.85rem" }}>
-              {desktop && (
-                <button type="button" className="primary" onClick={browseRoot}>
-                  Browse for more…
-                </button>
-              )}
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => void loadLocations()}
-                disabled={!desktop && !connected}
-              >
-                Refresh list
-              </button>
-            </div>
-            <p className="meta chooser-hint">
-              {desktop
-                ? "Selected tiles are scanned. Use Browse for any other folder or whole drive."
-                : "Tiles come from the API computer (inside Docker that is the container). Your Mac/Windows drives appear in the desktop app."}
-            </p>
-          </div>
-
-          <div className="where-extra">
-            <h3 className="loc-heading">Where extras</h3>
-            <label className="check-line">
-              <input
-                type="checkbox"
-                checked={filters.include_hidden}
-                onChange={(e) => updateFilters({ include_hidden: e.target.checked })}
-              />
-              Include hidden files and folders
-            </label>
-            <div className="row" style={{ marginTop: "0.55rem" }}>
-              <label className="field-label">
-                Max depth
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="Unlimited"
-                  value={filters.max_depth ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value.trim();
-                    updateFilters({
-                      max_depth: v === "" ? null : Math.max(0, Number(v) || 0),
-                    });
-                  }}
-                  aria-label="Max folder depth"
-                />
-              </label>
-            </div>
-            <p className="meta" style={{ marginTop: "0.65rem" }}>
-              Exclude these folders (must be under a selected place)
-            </p>
-            <div className="chip-list">
-              {filters.exclude_paths.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className="chip"
-                  onClick={() =>
-                    updateFilters({
-                      exclude_paths: filters.exclude_paths.filter((x) => x !== p),
-                    })
-                  }
-                >
-                  {folderLabel(p)} ×
-                </button>
-              ))}
-            </div>
-            <div className="row" style={{ marginTop: "0.45rem" }}>
-              <input
-                type="text"
-                value={excludePathInput}
-                onChange={(e) => setExcludePathInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addExcludePath()}
-                placeholder="Path to skip"
-                aria-label="Exclude path"
-              />
-              <button type="button" className="ghost" onClick={addExcludePath}>
-                Exclude
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="linkish"
-            onClick={() => setWhatOpen((o) => !o)}
-            aria-expanded={whatOpen}
-          >
-            {whatOpen ? "Hide: What should we look for?" : "What should we look for?"}
-          </button>
-          {whatOpen && (
-            <div className="what-panel" data-tour="tour-what">
-              <h3 className="loc-heading">File types</h3>
-              <div className="loc-grid cat-grid" role="group" aria-label="File categories">
-                {ALL_CATEGORIES.map((cat) => {
-                  const on = filters.categories.includes(cat);
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      className={`loc-tile${on ? " loc-on" : ""}`}
-                      aria-pressed={on}
-                      onClick={() => toggleCategory(cat)}
-                    >
-                      <strong className="loc-label">{CATEGORY_LABELS[cat]}</strong>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="row" style={{ marginTop: "0.75rem" }}>
-                <label className="field-label">
-                  Min size
-                  <input
-                    type="text"
-                    value={minSizeInput}
-                    onChange={(e) => setMinSizeInput(e.target.value)}
-                    onBlur={() =>
-                      updateFilters({ min_size: parseSizeInput(minSizeInput) })
-                    }
-                    placeholder="e.g. 1mb"
-                    aria-label="Minimum file size"
-                  />
-                </label>
-                <label className="field-label">
-                  Max size
-                  <input
-                    type="text"
-                    value={maxSizeInput}
-                    onChange={(e) => setMaxSizeInput(e.target.value)}
-                    onBlur={() =>
-                      updateFilters({ max_size: parseSizeInput(maxSizeInput) })
-                    }
-                    placeholder="e.g. 2gb"
-                    aria-label="Maximum file size"
-                  />
-                </label>
-              </div>
-              <div className="row" style={{ marginTop: "0.55rem" }}>
-                <label className="field-label grow">
-                  Include extensions only
-                  <input
-                    type="text"
-                    value={includeExtInput}
-                    onChange={(e) => setIncludeExtInput(e.target.value)}
-                    onBlur={() =>
-                      updateFilters({
-                        include_extensions: splitTags(includeExtInput),
-                      })
-                    }
-                    placeholder="jpg, png (empty = any)"
-                    aria-label="Include extensions"
-                  />
-                </label>
-              </div>
-              <div className="row" style={{ marginTop: "0.55rem" }}>
-                <label className="field-label grow">
-                  Exclude extensions
-                  <input
-                    type="text"
-                    value={excludeExtInput}
-                    onChange={(e) => setExcludeExtInput(e.target.value)}
-                    onBlur={() =>
-                      updateFilters({
-                        exclude_extensions: splitTags(excludeExtInput),
-                      })
-                    }
-                    placeholder="tmp, log"
-                    aria-label="Exclude extensions"
-                  />
-                </label>
-              </div>
-              <p className="meta" style={{ marginTop: "0.65rem" }}>
-                Skip folders/files named
-              </p>
-              <div className="chip-list">
-                {filters.exclude_names.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className="chip"
-                    onClick={() =>
-                      updateFilters({
-                        exclude_names: filters.exclude_names.filter((x) => x !== n),
-                      })
-                    }
-                  >
-                    {n} ×
-                  </button>
-                ))}
-              </div>
-              <div className="row" style={{ marginTop: "0.45rem" }}>
-                <input
-                  type="text"
-                  value={excludeNameInput}
-                  onChange={(e) => setExcludeNameInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
-                    const v = excludeNameInput.trim();
-                    if (!v || filters.exclude_names.includes(v)) return;
-                    updateFilters({
-                      exclude_names: [...filters.exclude_names, v],
-                    });
-                    setExcludeNameInput("");
-                  }}
-                  placeholder="Add name to skip"
-                  aria-label="Exclude name"
-                />
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => {
-                    const v = excludeNameInput.trim();
-                    if (!v || filters.exclude_names.includes(v)) return;
-                    updateFilters({
-                      exclude_names: [...filters.exclude_names, v],
-                    });
-                    setExcludeNameInput("");
-                  }}
-                >
-                  Add
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => {
-                    const next = sensibleFilters();
-                    setFilters(next);
-                    saveFilters(next);
-                    setMinSizeInput("");
-                    setMaxSizeInput("");
-                    setIncludeExtInput("");
-                    setExcludeExtInput("");
-                  }}
-                >
-                  Reset filters
-                </button>
-              </div>
-            </div>
-          )}
-
-          {customRoots.length > 0 && (
-            <ul className="folder-cards">
-              {customRoots.map((r) => (
-                <li key={r} className="folder-card">
-                  <div>
-                    <strong className="folder-name">{folderLabel(r)}</strong>
-                    <div className="path meta">{r}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="ghost compact"
-                    onClick={() => setRoots((xs) => xs.filter((x) => x !== r))}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {roots.length === 0 && (
-            <p className="empty-hint">No places selected yet — tap at least one tile to scan.</p>
-          )}
-
-          <button
-            type="button"
-            className="linkish"
-            onClick={() => setPathEntryOpen((o) => !o)}
-            aria-expanded={pathEntryOpen}
-          >
-            {pathEntryOpen ? "Hide path entry" : "Add folder by typing a path"}
-          </button>
-          {pathEntryOpen && (
-            <div className="row" style={{ marginTop: "0.65rem" }}>
-              <input
-                type="text"
-                value={rootInput}
-                onChange={(e) => setRootInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addRoot()}
-                placeholder={
-                  desktop ? "D:\\Photos" : "/app/docker/fixtures"
-                }
-                aria-label="Folder path"
-              />
-              <button type="button" className="ghost" onClick={addRoot}>
-                Add path
-              </button>
-            </div>
-          )}
-
-          <button
-            type="button"
-            className="linkish"
-            onClick={() => setAdvancedOpen((o) => !o)}
-            aria-expanded={advancedOpen}
-          >
-            {advancedOpen ? "Hide advanced" : "Advanced: faster re-scan index"}
-          </button>
-          {advancedOpen && (
-            <div className="row" style={{ marginTop: "0.65rem" }}>
-              <input
-                type="text"
-                value={indexPath}
-                onChange={(e) => setIndexPath(e.target.value)}
-                placeholder="Optional SQLite index path"
-                aria-label="Index path"
-              />
-            </div>
-          )}
-          <div className="profiles-panel">
-            <h3 className="loc-heading">Saved profiles</h3>
-            <div className="row">
-              <input
-                type="text"
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                placeholder="Profile name"
-                aria-label="Profile name"
-              />
-              <button
-                type="button"
-                className="ghost"
-                disabled={!profileName.trim() || roots.length === 0}
-                onClick={() => {
-                  upsertProfile(profileName.trim(), roots, filters);
-                  setProfiles(loadProfiles());
-                  setProfileName("");
-                }}
-              >
-                Save profile
-              </button>
-            </div>
-            {profiles.length > 0 && (
-              <ul className="roots" style={{ marginTop: "0.55rem" }}>
-                {profiles.map((p) => (
-                  <li key={p.id}>
-                    <span className="path">{p.name}</span>
-                    <div className="row" style={{ marginTop: "0.35rem" }}>
-                      <button
-                        type="button"
-                        className="ghost compact"
-                        onClick={() => {
-                          setRoots(p.roots);
-                          setFilters(p.filters);
-                          saveFilters(p.filters);
-                          setMinSizeInput(formatSizeInput(p.filters.min_size));
-                          setMaxSizeInput(formatSizeInput(p.filters.max_size));
-                          setIncludeExtInput(p.filters.include_extensions.join(", "));
-                          setExcludeExtInput(p.filters.exclude_extensions.join(", "));
-                        }}
-                      >
-                        Load
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost compact"
-                        onClick={() => {
-                          deleteProfile(p.id);
-                          setProfiles(loadProfiles());
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <p className="scan-summary meta" data-tour="tour-scan-summary">
-            {filterSummary(filters, roots.length)}
-          </p>
-          {busy && scanProgress && (
-            <div className="progress-block" aria-live="polite">
-              <div className="progress-bar">
-                <div
-                  className="progress-fill"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      scanProgress.phase === "done"
-                        ? 100
-                        : scanProgress.files_seen === 0
-                          ? 5
-                          : Math.max(
-                              8,
-                              (scanProgress.files_hashed / Math.max(1, scanProgress.files_seen)) *
-                                100,
-                            ),
-                    )}%`,
-                  }}
-                />
-              </div>
-              <p className="meta">
-                {scanProgress.phase}: {scanProgress.files_seen} seen ·{" "}
-                {scanProgress.files_hashed} hashed · {formatBytes(scanProgress.bytes_hashed)}
-              </p>
-            </div>
-          )}
-          <div className="row" style={{ marginTop: "0.65rem" }} data-tour="tour-scan">
-            <button
-              type="button"
-              className="primary"
-              disabled={busy || roots.length === 0}
-              onClick={runScan}
-            >
-              {busy
-                ? "Scanning…"
-                : `Scan ${roots.length || ""} place${roots.length === 1 ? "" : "s"}`.trim()}
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              disabled={busy || roots.length === 0}
-              onClick={() => {
-                setRestoreOpen((o) => !o);
-                if (!restoreOpen) void refreshQuarantine();
-              }}
-            >
-              {restoreOpen ? "Hide restore" : "Restore from trash"}
-            </button>
-          </div>
-          {restoreOpen && (
-            <div className="restore-panel">
-              <h3 className="loc-heading">Quarantine (.dup-finder-trash)</h3>
-              <p className="meta">
-                Lists files under each selected place’s local quarantine folder (not OS Trash).
-              </p>
-              <button type="button" className="ghost compact" onClick={() => void refreshQuarantine()}>
-                Refresh list
-              </button>
-              {quarantine.length === 0 ? (
-                <p className="meta">Nothing quarantined under selected places.</p>
-              ) : (
-                <ul className="roots">
-                  {quarantine.map((q) => (
-                    <li key={q.path}>
-                      <label className="candidate">
-                        <input
-                          type="checkbox"
-                          checked={!!quarantineSel[q.path]}
-                          onChange={(e) =>
-                            setQuarantineSel((s) => ({ ...s, [q.path]: e.target.checked }))
-                          }
-                        />
-                        <span>
-                          <span className="path">{q.name}</span>
-                          <span className="meta">
-                            {formatBytes(q.size)} · {q.original_parent}
-                          </span>
-                        </span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <button
-                type="button"
-                className="primary"
-                disabled={busy || !Object.values(quarantineSel).some(Boolean)}
-                onClick={async () => {
-                  setBusy(true);
-                  setError(null);
-                  try {
-                    for (const [path, on] of Object.entries(quarantineSel)) {
-                      if (!on) continue;
-                      await client.quarantineRestore(path, roots);
-                    }
-                    await refreshQuarantine();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                Restore selected
-              </button>
-            </div>
-          )}
-        </section>
+      {step === "roots" && setupMode && !showModeChooser && (
+        <FoldersPanel
+          mode={setupMode}
+          desktop={desktop}
+          connected={connected}
+          busy={busy}
+          roots={roots}
+          locations={locations}
+          locationsError={locationsError}
+          driveLocations={driveLocations}
+          folderLocations={folderLocations}
+          customRoots={customRoots}
+          filters={filters}
+          whatOpen={whatOpen}
+          setWhatOpen={setWhatOpen}
+          moreOptionsOpen={moreOptionsOpen}
+          setMoreOptionsOpen={setMoreOptionsOpen}
+          guidedSubstep={guidedSubstep}
+          setGuidedSubstep={setGuidedSubstep}
+          pathEntryOpen={pathEntryOpen}
+          setPathEntryOpen={setPathEntryOpen}
+          advancedOpen={advancedOpen}
+          setAdvancedOpen={setAdvancedOpen}
+          rootInput={rootInput}
+          setRootInput={setRootInput}
+          indexPath={indexPath}
+          setIndexPath={setIndexPath}
+          excludePathInput={excludePathInput}
+          setExcludePathInput={setExcludePathInput}
+          includeExtInput={includeExtInput}
+          setIncludeExtInput={setIncludeExtInput}
+          excludeExtInput={excludeExtInput}
+          setExcludeExtInput={setExcludeExtInput}
+          excludeNameInput={excludeNameInput}
+          setExcludeNameInput={setExcludeNameInput}
+          minSizeInput={minSizeInput}
+          setMinSizeInput={setMinSizeInput}
+          maxSizeInput={maxSizeInput}
+          setMaxSizeInput={setMaxSizeInput}
+          profiles={profiles}
+          profileName={profileName}
+          setProfileName={setProfileName}
+          setProfiles={setProfiles}
+          setRoots={setRoots}
+          setFilters={(fn) => {
+            setFilters((f) => {
+              const next = typeof fn === "function" ? fn(f) : fn;
+              saveFilters(next);
+              return next;
+            });
+          }}
+          updateFilters={updateFilters}
+          toggleLocation={toggleLocation}
+          toggleCategory={toggleCategory}
+          addRoot={addRoot}
+          addExcludePath={addExcludePath}
+          browseRoot={browseRoot}
+          applyPreset={applyPreset}
+          loadLocations={loadLocations}
+          runScan={runScan}
+          scanProgress={scanProgress}
+          restoreOpen={restoreOpen}
+          setRestoreOpen={setRestoreOpen}
+          quarantine={quarantine}
+          quarantineSel={quarantineSel}
+          setQuarantineSel={setQuarantineSel}
+          refreshQuarantine={refreshQuarantine}
+          restoreSelected={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              for (const [path, on] of Object.entries(quarantineSel)) {
+                if (!on) continue;
+                await client.quarantineRestore(path, roots);
+              }
+              await refreshQuarantine();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+          saveProfile={() => {
+            upsertProfile(profileName.trim(), roots, filters);
+            setProfiles(loadProfiles());
+            setProfileName("");
+          }}
+          loadProfile={(prof) => {
+            setRoots(prof.roots);
+            setFilters(prof.filters);
+            saveFilters(prof.filters);
+            setMinSizeInput(formatSizeInput(prof.filters.min_size));
+            setMaxSizeInput(formatSizeInput(prof.filters.max_size));
+            setIncludeExtInput(prof.filters.include_extensions.join(", "));
+            setExcludeExtInput(prof.filters.exclude_extensions.join(", "));
+          }}
+          deleteProfileById={(id) => {
+            deleteProfile(id);
+            setProfiles(loadProfiles());
+          }}
+        />
       )}
 
       {(step === "results" || step === "confirm") && summary && (
@@ -1538,11 +1273,34 @@ export default function App() {
               ))}
             </div>
           </div>
+          <label className="check-line" style={{ marginBottom: "0.75rem" }}>
+            <input
+              type="checkbox"
+              checked={showFullPaths}
+              onChange={(e) => setShowFullPaths(e.target.checked)}
+            />
+            Show full paths
+          </label>
           {suggest.groups.length === 0 && (
-            <p className="meta">No duplicate groups in these roots.</p>
+            <div className="empty-state">
+              <strong>No duplicates found</strong>
+              <p className="meta">
+                Nothing looks like an exact copy in these places. Try adding more
+                folders, or include more file types under Change mode → Guided /
+                Advanced.
+              </p>
+              <button type="button" className="primary" onClick={() => setStep("roots")}>
+                Pick more folders
+              </button>
+            </div>
           )}
           {suggest.groups.length > 0 && visibleGroups.length === 0 && (
-            <p className="meta">No groups match the current filters.</p>
+            <div className="empty-state">
+              <strong>Nothing matches these filters</strong>
+              <p className="meta">
+                Try “All” for caution and view filters, or clear the sort chips above.
+              </p>
+            </div>
           )}
           {visibleGroups.map((g) => {
             const groupCritical = (g.cautions || []).some((c) => c.level === "critical");
@@ -1572,21 +1330,23 @@ export default function App() {
               </div>
               <div className="keep-row">
                 <Thumb path={g.keep.path} mime={g.keep.mime} />
-                <div className="path">
-                  {g.keep.path}
-                  <span className="badge">keep</span>
-                  {cautionFor(g.keep.path, g.cautions) && (
-                    <span className="badge warn">caution</span>
-                  )}
-                </div>
-                <div className="meta">
-                  {g.keep.mime} · {formatBytes(g.keep.size)}
-                  {cautionFor(g.keep.path, g.cautions) && (
-                    <>
-                      {" "}
-                      · {cautionReasonLabel(cautionFor(g.keep.path, g.cautions)!.reason)}
-                    </>
-                  )}
+                <div>
+                  <div className="path" title={g.keep.path}>
+                    {showFullPaths ? g.keep.path : friendlyPath(g.keep.path)}
+                    <span className="badge">keep</span>
+                    {cautionFor(g.keep.path, g.cautions) && (
+                      <span className="badge warn">caution</span>
+                    )}
+                  </div>
+                  <div className="meta">
+                    {g.keep.mime} · {formatBytes(g.keep.size)}
+                    {cautionFor(g.keep.path, g.cautions) && (
+                      <>
+                        {" "}
+                        · {cautionReasonLabel(cautionFor(g.keep.path, g.cautions)!.reason)}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               {g.delete_candidates.map((c) => {
@@ -1606,8 +1366,8 @@ export default function App() {
                       }
                     />
                     <span>
-                      <span className="path">
-                        {c.path}
+                      <span className="path" title={c.path}>
+                        {showFullPaths ? c.path : friendlyPath(c.path)}
                         <span className="badge drop">candidate</span>
                         {caution?.level === "critical" && (
                           <span className="badge danger">critical</span>
@@ -1735,11 +1495,36 @@ export default function App() {
                 {deleteReport.outcomes.map((o) => (
                   <li key={o.path + o.reason + o.kind}>
                     <span className="path">
-                      {o.kind}: {o.path} ({o.reason})
+                      {o.kind}: {showFullPaths ? o.path : friendlyPath(o.path)} ({o.reason})
                     </span>
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+          {undoToast && deleteModeDone === "trash" && (
+            <div className="undo-toast" role="status">
+              <p>
+                Files moved to trash. If they landed in{" "}
+                <code>.dup-finder-trash</code>, you can restore them now.
+              </p>
+              <div className="row">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => void undoTrashFromQuarantine()}
+                >
+                  Undo from quarantine
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setUndoToast(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           )}
           <div className="row" style={{ marginTop: "1rem" }}>
@@ -1751,11 +1536,27 @@ export default function App() {
                 setDeleteModeDone(null);
                 setPermanentOpen(false);
                 setPermanentPhrase("");
+                setUndoToast(null);
                 setStep("results");
               }}
             >
               Back
             </button>
+            {suggest && summary && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() =>
+                  exportSuggestJson(suggest, {
+                    scanned: summary.scanned,
+                    groups: summary.groups,
+                    reclaimable: summary.reclaimable,
+                  })
+                }
+              >
+                Export JSON
+              </button>
+            )}
             <button
               type="button"
               className="danger"
@@ -1783,6 +1584,15 @@ export default function App() {
               </button>
               {permanentOpen && (
                 <div style={{ marginTop: "0.65rem" }}>
+                  {selectedCritical.length > 0 && (
+                    <div className="warn-box" role="alert" style={{ marginBottom: "0.75rem" }}>
+                      <strong>Stop — critical paths are in this batch</strong>
+                      <p className="meta">
+                        Permanent delete cannot be undone and may break apps or the
+                        OS. Prefer Trash, or go back and uncheck critical items.
+                      </p>
+                    </div>
+                  )}
                   <p className="meta">
                     Permanent delete cannot be undone. Type{" "}
                     <strong>DELETE</strong> to enable.

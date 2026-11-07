@@ -27,6 +27,9 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Quarantine restore | list/restore `.dup-finder-trash` via API/UI |
 | Export / profiles / review UX | JSON/CSV; localStorage profiles; sort/filter/view; image previews |
 | Jobs UI + reclaimable notify | Settings jobs panel; Notification threshold in localStorage |
+| Folders setup modes | Simple/Smart/Guided/Advanced chooser; resume wins over gate |
+| Session resume + Review polish | `dup.session.v1`; empty states; quick places; thumbs; quarantine undo toast |
+| Full local test matrix | `docker/test/full_matrix.sh` (fixtures, unit, UI, API, quarantine RT, CLI progress) |
 
 ## Explicitly deferred to runners / CI (next phase)
 

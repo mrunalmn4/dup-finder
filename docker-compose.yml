@@ -29,6 +29,7 @@ services:
       CARGO_HTTP_TIMEOUT: "600"
       DUP_FINDER_ALLOW_NON_LOOPBACK: "1"
       DUP_FINDER_TOKEN: "dev-token-change-me"
+      DUP_FINDER_FORCE_QUARANTINE: "1"
     volumes:
       - .:/app
       - cargo-registry:/usr/local/cargo/registry

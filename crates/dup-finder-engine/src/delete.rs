@@ -22,6 +22,11 @@ pub struct FsDeleteBackend;
 
 impl DeleteBackend for FsDeleteBackend {
     fn trash(&self, path: &Path) -> io::Result<()> {
+        // Docker/CI and restore UX tests: force local quarantine so files stay
+        // under approved roots (OS Trash is opaque and not listable).
+        if std::env::var_os("DUP_FINDER_FORCE_QUARANTINE").is_some() {
+            return quarantine_beside(path);
+        }
         match trash::delete(path) {
             Ok(()) => Ok(()),
             Err(_os_err) => quarantine_beside(path),

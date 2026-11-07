@@ -41,6 +41,11 @@
 | S1-06 | Shared app session scan→suggest→dry-run | Unit in `dup-finder-app` | P |
 | S1-07 | UI builds for Tauri frontendDist | `npm run build` | P |
 | S1-08 | Tauri desktop launch on macOS host | Manual (`cargo tauri dev`) | B (host Tauri) |
+| S1-09 | Async scan job + progress | `/v1/scan/start` → ok + phase | P (api_smoke) |
+| S1-10 | Quarantine list + restore reject | list ok; non-trash restore ≠ 200 | P (api_smoke) |
+| S1-11 | Trash → quarantine → restore | Roundtrip under `FORCE_QUARANTINE` | P (quarantine_roundtrip_smoke) |
+| S1-12 | UI setup modes + session resume | Mode gate; Review persists in localStorage | P (code + session_logic_test) |
+| S1-13 | CLI `--progress` | stderr progress lines + JSON | P (full_matrix) |
 
 ## Slice 2 — Daemon
 

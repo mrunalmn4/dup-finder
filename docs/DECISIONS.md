@@ -40,3 +40,6 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Scan filters | `ScanFilters` on engine/API/CLI/jobs; sensible defaults (skip node_modules/.git, hide dotfiles); UI Where+What with localStorage |
 | 2026-11-07 | Async scan progress | `ScanProgress` callback; `POST /v1/scan/start` + poll job; sync `POST /v1/scan` kept; CLI `--progress`; rayon parallel hash in size buckets |
 | 2026-11-07 | Quarantine restore | List/restore only under `.dup-finder-trash` within approved roots; OS Trash restore out of scope |
+| 2026-11-07 | Folders setup modes | Chooser Simple/Smart/Guided/Advanced when idle; resume Review/Confirm/mid-scan wins; `dup.setupMode.v1` |
+| 2026-11-07 | UI session resume | `dup.session.v1` persists Review/Confirm; expired server scan → clear + message |
+| 2026-11-07 | Force quarantine | `DUP_FINDER_FORCE_QUARANTINE=1` skips OS Trash (Docker API / restore tests) |
