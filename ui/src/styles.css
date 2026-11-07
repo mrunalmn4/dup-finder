@@ -126,16 +126,39 @@ body {
   border: 1px solid #bbf7d0;
 }
 
+.group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.candidate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
 .candidate {
   display: flex;
   gap: 0.65rem;
   align-items: flex-start;
-  margin-top: 0.65rem;
+  flex: 1;
+  min-width: 12rem;
   cursor: pointer;
 }
 
 .candidate input {
   margin-top: 0.25rem;
+}
+
+button.compact {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
 }
 
 .linkish {

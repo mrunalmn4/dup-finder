@@ -7,8 +7,10 @@ import {
   pickFolder,
   saveConnection,
   type DeleteReport,
+  type FileRecord,
   type SuggestReport,
 } from "./api";
+import { keepReasonLabel } from "./suggestLabels";
 
 type Step = "roots" | "results" | "confirm";
 
@@ -148,6 +150,47 @@ export default function App() {
 
   function clearSelection() {
     setSelected({});
+  }
+
+  /** Check only this group's delete candidates (engine suggestion). */
+  function acceptGroupSuggestion(hash: string) {
+    if (!suggest) return;
+    const g = suggest.groups.find((x) => x.hash === hash);
+    if (!g) return;
+    setSelected((s) => {
+      const next = { ...s };
+      for (const c of g.delete_candidates) next[c.path] = true;
+      return next;
+    });
+  }
+
+  /** Promote a candidate to keep; previous keep becomes an unchecked candidate. */
+  function promoteKeep(hash: string, nextKeep: FileRecord) {
+    setSuggest((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        groups: prev.groups.map((g) => {
+          if (g.hash !== hash) return g;
+          if (g.keep.path === nextKeep.path) return g;
+          const rest = [
+            g.keep,
+            ...g.delete_candidates.filter((c) => c.path !== nextKeep.path),
+          ];
+          return {
+            ...g,
+            keep: nextKeep,
+            keep_reason: "user_choice",
+            delete_candidates: rest,
+          };
+        }),
+      };
+    });
+    setSelected((s) => {
+      const next = { ...s };
+      next[nextKeep.path] = false;
+      return next;
+    });
   }
 
   async function runScan() {
@@ -425,9 +468,19 @@ export default function App() {
           )}
           {suggest.groups.map((g) => (
             <div className="group" key={g.hash}>
-              <div className="meta">
-                {formatBytes(g.reclaimable_bytes)} reclaimable · keep reason{" "}
-                <code>{g.keep_reason}</code>
+              <div className="group-head">
+                <div className="meta">
+                  {formatBytes(g.reclaimable_bytes)} reclaimable ·{" "}
+                  {keepReasonLabel(g.keep_reason)}
+                </div>
+                <button
+                  type="button"
+                  className="ghost compact"
+                  disabled={g.delete_candidates.length === 0}
+                  onClick={() => acceptGroupSuggestion(g.hash)}
+                >
+                  Accept suggestion
+                </button>
               </div>
               <div className="keep-row">
                 <div className="path">
@@ -439,24 +492,36 @@ export default function App() {
                 </div>
               </div>
               {g.delete_candidates.map((c) => (
-                <label key={c.path} className="candidate">
-                  <input
-                    type="checkbox"
-                    checked={!!selected[c.path]}
-                    onChange={(e) =>
-                      setSelected((s) => ({ ...s, [c.path]: e.target.checked }))
-                    }
-                  />
-                  <span>
-                    <span className="path">
-                      {c.path}
-                      <span className="badge drop">candidate</span>
+                <div key={c.path} className="candidate-row">
+                  <label className="candidate">
+                    <input
+                      type="checkbox"
+                      checked={!!selected[c.path]}
+                      onChange={(e) =>
+                        setSelected((s) => ({
+                          ...s,
+                          [c.path]: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>
+                      <span className="path">
+                        {c.path}
+                        <span className="badge drop">candidate</span>
+                      </span>
+                      <span className="meta">
+                        {c.mime} · {formatBytes(c.size)}
+                      </span>
                     </span>
-                    <span className="meta">
-                      {c.mime} · {formatBytes(c.size)}
-                    </span>
-                  </span>
-                </label>
+                  </label>
+                  <button
+                    type="button"
+                    className="ghost compact"
+                    onClick={() => promoteKeep(g.hash, c)}
+                  >
+                    Keep this instead
+                  </button>
+                </div>
               ))}
             </div>
           ))}

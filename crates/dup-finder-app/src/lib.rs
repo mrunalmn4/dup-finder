@@ -84,14 +84,17 @@ impl AppSession {
     pub fn delete(&self, req: DeleteRequestDto) -> Result<DeleteReport, String> {
         let mode = parse_mode(&req.mode)?;
         let scan = self.get_scan(&req.scan_id)?;
-        // Never trust client-only keep: always union with suggested keeps from this scan.
-        let suggested = suggest_from_scan(&scan);
-        let mut keep_paths = req.keep;
-        for g in &suggested.groups {
-            keep_paths.push(g.keep.path.clone());
-        }
-        keep_paths.sort();
-        keep_paths.dedup();
+        // Empty keep → derive from suggest (fail closed for raw API clients).
+        // Non-empty keep → trust authenticated client (UI may override via "Keep this instead").
+        let keep_paths = if req.keep.is_empty() {
+            suggest_from_scan(&scan)
+                .groups
+                .into_iter()
+                .map(|g| g.keep.path)
+                .collect()
+        } else {
+            req.keep
+        };
         let engine_req = DeleteRequest {
             roots: scan.roots.clone(),
             records: scan.records.clone(),
