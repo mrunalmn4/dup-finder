@@ -28,7 +28,7 @@ Cross-platform duplicate file finder. Prefer this file + `docs/superpowers/specs
 0. Engine + CLI (+ delete-safety UAT must be 100% green)
 1. GUI review/delete UX
 2. Daemon/scheduler
-3. Full packaging/signing matrix
+3. Packaging (deb/rpm/SBOM local; cosign + host Tauri = org/host)
 
 ## Token efficiency
 

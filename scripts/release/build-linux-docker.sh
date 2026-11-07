@@ -19,18 +19,18 @@ chmod +x "${BIN}"
   shasum -a 256 "$(basename "${BIN}")" > SHA256SUMS
 )
 
-# Dependency SBOM via cargo tree (JSON lines)
-docker run --rm -v "${ROOT}:/app" -w /app rust:1-bookworm \
-  bash -lc 'export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse CARGO_HTTP_TIMEOUT=600; cargo tree -p dup-finder-cli -e normal --format "{p}"' \
-  > "${OUT}/sbom-cargo-tree.txt"
+# Offline dependency inventory from Cargo.lock (no crates.io; syft covers binary SBOM)
+python3 "${ROOT}/scripts/release/cargo-lock-packages.py" "${ROOT}/Cargo.lock" \
+  > "${OUT}/sbom-cargo-lock.txt"
 
 # Simple NOTICE for license compliance packaging
 {
   echo "Dup Finder release artifact"
   echo "Binary: $(basename "${BIN}")"
   echo "See crates/*/Cargo.toml and Cargo.lock for third-party licenses."
-  echo "Generate fuller SPDX with syft/grype in org CI when available."
+  echo "Run scripts/release/sbom-syft.sh for SPDX/CycloneDX; cosign in org CI."
 } > "${OUT}/NOTICE.txt"
 
 echo "Release artifacts in ${OUT}"
 ls -la "${OUT}"
+echo "Next: bash scripts/release/sbom-syft.sh && package-deb.sh / package-rpm.sh"

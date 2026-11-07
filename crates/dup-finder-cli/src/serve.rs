@@ -44,6 +44,20 @@ fn check_auth(headers: &HeaderMap, token: &str) -> Result<(), (StatusCode, Strin
     Ok(())
 }
 
+/// Fail closed: non-loopback binds require an explicit escape hatch (Docker UAT only).
+fn ensure_bind_allowed(addr: SocketAddr) -> Result<(), String> {
+    let allow_remote = std::env::var("DUP_FINDER_ALLOW_NON_LOOPBACK")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !addr.ip().is_loopback() && !allow_remote {
+        return Err(
+            "refusing non-loopback bind (set DUP_FINDER_ALLOW_NON_LOOPBACK=1 for Docker UAT only)"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn map_err(e: String) -> (StatusCode, String) {
     let status = if e.contains("not found") {
         StatusCode::NOT_FOUND
@@ -204,15 +218,7 @@ pub async fn run_server(
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .map_err(|e| format!("bad bind address: {e}"))?;
-    let allow_remote = std::env::var("DUP_FINDER_ALLOW_NON_LOOPBACK")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-    if !addr.ip().is_loopback() && !allow_remote {
-        return Err(
-            "refusing non-loopback bind (set DUP_FINDER_ALLOW_NON_LOOPBACK=1 for Docker UAT only)"
-                .into(),
-        );
-    }
+    ensure_bind_allowed(addr)?;
     eprintln!("dup-finder serve listening on http://{addr}");
     eprintln!("state db: {}", state_db.display());
     eprintln!("Authorization: Bearer {token}");
@@ -223,4 +229,55 @@ pub async fn run_server(
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn loopback_always_allowed() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("DUP_FINDER_ALLOW_NON_LOOPBACK");
+        let addr: SocketAddr = "127.0.0.1:7420".parse().unwrap();
+        assert!(ensure_bind_allowed(addr).is_ok());
+    }
+
+    #[test]
+    fn non_loopback_refused_without_env() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("DUP_FINDER_ALLOW_NON_LOOPBACK");
+        let addr: SocketAddr = "0.0.0.0:7420".parse().unwrap();
+        let err = ensure_bind_allowed(addr).unwrap_err();
+        assert!(err.contains("refusing non-loopback"));
+    }
+
+    #[test]
+    fn non_loopback_ok_with_escape_hatch() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("DUP_FINDER_ALLOW_NON_LOOPBACK", "1");
+        let addr: SocketAddr = "0.0.0.0:7420".parse().unwrap();
+        assert!(ensure_bind_allowed(addr).is_ok());
+        std::env::remove_var("DUP_FINDER_ALLOW_NON_LOOPBACK");
+    }
+
+    #[test]
+    fn bearer_token_required() {
+        let mut headers = HeaderMap::new();
+        assert!(check_auth(&headers, "secret").is_err());
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer secret"),
+        );
+        assert!(check_auth(&headers, "secret").is_ok());
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer wrong"),
+        );
+        assert!(check_auth(&headers, "secret").is_err());
+    }
 }

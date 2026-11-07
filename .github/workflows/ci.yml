@@ -25,6 +25,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build release binary + checksums
         run: bash scripts/release/build-linux-docker.sh
+      - name: SBOM (syft)
+        run: bash scripts/release/sbom-syft.sh
+      - name: Package deb
+        run: bash scripts/release/package-deb.sh
+      - name: Package rpm
+        run: bash scripts/release/package-rpm.sh
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

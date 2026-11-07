@@ -3,7 +3,8 @@
 ## Artifacts (Docker on Mac)
 
 ```bash
-bash scripts/release/build-linux-docker.sh   # binary + SHA256SUMS + NOTICE
+bash scripts/release/build-linux-docker.sh   # binary + SHA256SUMS + NOTICE + Cargo.lock inventory
+bash scripts/release/sbom-syft.sh            # SPDX + CycloneDX (syft Docker image)
 bash scripts/release/package-deb.sh          # .deb from that binary
 bash scripts/release/package-rpm.sh          # .rpm from that binary (Rocky Linux container)
 ```
@@ -19,7 +20,7 @@ Outputs: `artifacts/release/`
 | Debian | `package-deb.sh` |
 | RPM | `package-rpm.sh` |
 | AppImage / MSI / macOS | Tauri bundles on OS hosts; cosign in org CI |
-| SBOM / checksums | SHA256SUMS + NOTICE; upgrade to syft/cosign when secrets available |
+| SBOM / checksums | SHA256SUMS + NOTICE + `sbom-syft.sh`; cosign when secrets available |
 
 ## CI
 

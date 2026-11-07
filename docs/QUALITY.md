@@ -15,7 +15,12 @@ World-class for Dup Finder means **correctness over cleverness**, especially aro
 ```bash
 docker compose run --rm fixtures
 docker compose run --rm rust-test
+# optional API + packaging:
+# docker compose up -d api && bash docker/test/api_smoke.sh
+# bash scripts/release/build-linux-docker.sh && bash scripts/release/sbom-syft.sh
 ```
+
+Evidence index: `docs/evidence/README.md`.
 
 ## Slice gate
 

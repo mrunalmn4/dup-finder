@@ -23,3 +23,5 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Daemon jobs | SQLite JobStore; interval_secs; `/v1/jobs` + background scheduler tick |
 | 2026-11-07 | v0.1 delivery complete | Engine/CLI/UI/Tauri/daemon/Docker release path landed; RPM/MSI/cosign = org CI follow-ons |
 | 2026-11-07 | Docker API bind | Non-loopback only with `DUP_FINDER_ALLOW_NON_LOOPBACK=1` |
+| 2026-11-07 | Slice 3 local packaging | deb/rpm/syft SBOM in Docker; cosign + Tauri host bundles deferred |
+| 2026-11-07 | Evidence pack | `docs/evidence/` indexes auditor artifacts; no “certified” claim yet |

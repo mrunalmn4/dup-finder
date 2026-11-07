@@ -11,9 +11,10 @@
 | SOC2 CC7 / ISO A.8.15 | Logging | Audit log of scan/delete (no file bytes) | audit module + sample logs |
 | SOC2 CC8 / ISO A.8.32 | Change management | PR + CI required for release | GitHub/Origin branch protection (TBD) |
 | SOC2 CC7 / ISO A.8.8 | Vulnerabilities | cargo/npm audit + container scan in CI | CI reports per release |
-| SOC2 CC6 / ISO A.5/A.8 | Supply chain | SBOM + signed artifacts | GitHub Releases / sigstore |
-| SOC2 CC2 / ISO A.5.1 | Policies | SDLC, vuln, IR, signing stubs | `docs/policies/` (to add) |
+| SOC2 CC6 / ISO A.5/A.8 | Supply chain | SBOM + signed artifacts | `scripts/release/sbom-syft.sh`; cosign TBD |
+| SOC2 CC2 / ISO A.5.1 | Policies | SDLC, vuln, IR, signing stubs | `docs/policies/` |
 | SOC2 CC9 / ISO A.5.19 | Vendors | Dependency pin + license NOTICE | SBOM + NOTICE |
+| Index | Evidence pack map | Where to find each control’s proof | `docs/evidence/README.md` |
 | Privacy GDPR/CCPA | Lawful local processing | Data map; no account required | security-compliance spec |
 
 ## Next org actions (outside pure code)
