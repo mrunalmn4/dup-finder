@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   client,
   folderLabel,
@@ -180,6 +180,17 @@ export default function App() {
     setShowOnboarding(false);
   }
 
+  const prepareTour = useCallback(() => {
+    setHelpOpen(false);
+    setStep("roots");
+    setSettingsOpen(false);
+  }, []);
+
+  function startTour() {
+    prepareTour();
+    setShowOnboarding(true);
+  }
+
   function selectAllReclaimable() {
     if (!suggest) return;
     const sel: Record<string, boolean> = {};
@@ -314,19 +325,28 @@ export default function App() {
   return (
     <div className="app">
       {showOnboarding && (
-        <Onboarding desktop={desktop} onDone={finishOnboarding} />
+        <Onboarding
+          desktop={desktop}
+          onDone={finishOnboarding}
+          onPrepare={prepareTour}
+        />
       )}
       {helpOpen && (
-        <HelpGuide desktop={desktop} onClose={() => setHelpOpen(false)} />
+        <HelpGuide
+          desktop={desktop}
+          onClose={() => setHelpOpen(false)}
+          onStartTour={startTour}
+        />
       )}
 
-      <header className="brand">
+      <header className="brand" data-tour="tour-brand">
         <div className="brand-row">
           <h1>Dup Finder</h1>
           <div className="header-actions">
             <button
               type="button"
               className="ghost settings-btn"
+              data-tour="tour-help"
               onClick={() => setHelpOpen(true)}
             >
               Help
@@ -334,7 +354,7 @@ export default function App() {
             <button
               type="button"
               className="ghost settings-btn"
-              onClick={() => setShowOnboarding(true)}
+              onClick={startTour}
             >
               Show tour
             </button>
@@ -356,7 +376,7 @@ export default function App() {
         </p>
       </header>
 
-      <nav className="stepper" aria-label="Progress">
+      <nav className="stepper" aria-label="Progress" data-tour="tour-stepper">
         {STEPS.map((s, i) => {
           const state =
             i < stepIndex ? "done" : i === stepIndex ? "current" : "todo";
@@ -419,7 +439,7 @@ export default function App() {
             whole computer by surprise.
           </p>
 
-          <div className="chooser">
+          <div className="chooser" data-tour="tour-folders">
             {desktop ? (
               <button
                 type="button"
@@ -511,7 +531,7 @@ export default function App() {
               />
             </div>
           )}
-          <div className="row" style={{ marginTop: "1rem" }}>
+          <div className="row" style={{ marginTop: "1rem" }} data-tour="tour-scan">
             <button
               type="button"
               className="primary"
