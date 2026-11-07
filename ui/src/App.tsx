@@ -52,7 +52,11 @@ import {
   saveSession,
   sessionIsResumable,
 } from "./session";
-import { cautionReasonLabel, keepReasonLabel } from "./suggestLabels";
+import {
+  cautionReasonLabel,
+  keepReasonDetail,
+  keepReasonLabel,
+} from "./suggestLabels";
 import Thumb from "./Thumb";
 
 type Step = "roots" | "results" | "confirm";
@@ -1221,66 +1225,88 @@ export default function App() {
               </button>
             </div>
           </div>
-          <div className="review-controls" role="group" aria-label="Review filters">
-            <label className="field-label">
-              Sort
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortBy)}
-                aria-label="Sort groups"
-              >
-                <option value="reclaimable">Reclaimable size</option>
-                <option value="size">File size</option>
-                <option value="path">Path</option>
-              </select>
+          <div className="review-controls" aria-label="Review filters">
+            <div className="seg-block">
+              <span className="seg-label" id="sort-label">
+                Sort by
+              </span>
+              <div className="seg" role="group" aria-labelledby="sort-label">
+                {(
+                  [
+                    ["reclaimable", "Space saved"],
+                    ["size", "File size"],
+                    ["path", "Name"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`seg-btn${sortBy === id ? " on" : ""}`}
+                    aria-pressed={sortBy === id}
+                    onClick={() => setSortBy(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="seg-block">
+              <span className="seg-label" id="caution-label">
+                Caution
+              </span>
+              <div className="seg" role="group" aria-labelledby="caution-label">
+                {(
+                  [
+                    ["all", "All"],
+                    ["caution", "Has caution"],
+                    ["critical", "Critical"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`seg-btn${cautionFilter === id ? " on" : ""}`}
+                    aria-pressed={cautionFilter === id}
+                    onClick={() => setCautionFilter(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="seg-block">
+              <span className="seg-label" id="view-label">
+                Location
+              </span>
+              <div className="seg" role="group" aria-labelledby="view-label">
+                {(
+                  [
+                    ["all", "Anywhere"],
+                    ["same-folder", "Same folder"],
+                    ["cross-folder", "Across folders"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`seg-btn${viewMode === id ? " on" : ""}`}
+                    aria-pressed={viewMode === id}
+                    onClick={() => setViewMode(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="check-line seg-check">
+              <input
+                type="checkbox"
+                checked={showFullPaths}
+                onChange={(e) => setShowFullPaths(e.target.checked)}
+              />
+              Full paths
             </label>
-            <div className="chip-row" role="group" aria-label="Caution filter">
-              {(
-                [
-                  ["all", "All"],
-                  ["caution", "Has caution"],
-                  ["critical", "Critical only"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`chip${cautionFilter === id ? " chip-on" : ""}`}
-                  aria-pressed={cautionFilter === id}
-                  onClick={() => setCautionFilter(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="chip-row" role="group" aria-label="View mode">
-              {(
-                [
-                  ["all", "All groups"],
-                  ["same-folder", "Same folder"],
-                  ["cross-folder", "Cross folder"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`chip${viewMode === id ? " chip-on" : ""}`}
-                  aria-pressed={viewMode === id}
-                  onClick={() => setViewMode(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
           </div>
-          <label className="check-line" style={{ marginBottom: "0.75rem" }}>
-            <input
-              type="checkbox"
-              checked={showFullPaths}
-              onChange={(e) => setShowFullPaths(e.target.checked)}
-            />
-            Show full paths
-          </label>
           {suggest.groups.length === 0 && (
             <div className="empty-state">
               <strong>No duplicates found</strong>
@@ -1308,8 +1334,7 @@ export default function App() {
             <div className="group" key={g.hash}>
               <div className="group-head">
                 <div className="meta">
-                  {formatBytes(g.reclaimable_bytes)} reclaimable ·{" "}
-                  {keepReasonLabel(g.keep_reason)}
+                  {formatBytes(g.reclaimable_bytes)} reclaimable if extras removed
                   {groupCritical && (
                     <span className="badge warn"> contains system/app paths</span>
                   )}
@@ -1330,14 +1355,16 @@ export default function App() {
               </div>
               <div className="keep-row">
                 <Thumb path={g.keep.path} mime={g.keep.mime} />
-                <div>
+                <div className="keep-copy">
                   <div className="path" title={g.keep.path}>
                     {showFullPaths ? g.keep.path : friendlyPath(g.keep.path)}
                     <span className="badge">keep</span>
+                    <span className="badge reason">{keepReasonLabel(g.keep_reason)}</span>
                     {cautionFor(g.keep.path, g.cautions) && (
                       <span className="badge warn">caution</span>
                     )}
                   </div>
+                  <p className="keep-why">{keepReasonDetail(g.keep_reason)}</p>
                   <div className="meta">
                     {g.keep.mime} · {formatBytes(g.keep.size)}
                     {cautionFor(g.keep.path, g.cautions) && (

@@ -2,15 +2,31 @@
 export function keepReasonLabel(code: string): string {
   switch (code) {
     case "newest_mtime":
-      return "Keeping newer file";
+      return "Newest file";
     case "shortest_path":
-      return "Keeping shorter path";
+      return "Shortest path";
     case "lexicographic_path":
-      return "Keeping first path alphabetically";
+      return "First alphabetically";
     case "user_choice":
-      return "Keeping your choice";
+      return "Your choice";
     default:
-      return `Keep reason: ${code}`;
+      return code.replace(/_/g, " ");
+  }
+}
+
+/** Longer why-we-picked-this copy for the keep row. */
+export function keepReasonDetail(code: string): string {
+  switch (code) {
+    case "newest_mtime":
+      return "Suggested keep: this copy was modified more recently than the others.";
+    case "shortest_path":
+      return "Suggested keep: this path is shorter (often the “main” copy). Same age as others.";
+    case "lexicographic_path":
+      return "Suggested keep: same age and path length — picked the first path in A–Z order.";
+    case "user_choice":
+      return "You chose this file as the one to keep.";
+    default:
+      return `Suggested keep (${code}). You can change it with “Keep this instead”.`;
   }
 }
 
