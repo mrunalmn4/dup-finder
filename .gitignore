@@ -38,6 +38,8 @@ coverage/
 *.lcov
 /tmp/
 /docker/fixtures/generated/
+ui/test-results/
+ui/playwright-report/
 
 # Release / local artifacts
 /artifacts/
