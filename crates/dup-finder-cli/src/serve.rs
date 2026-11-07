@@ -161,6 +161,16 @@ async fn scan_job(
     state.session.scan_job(&job_id).map(Json).map_err(map_err)
 }
 
+async fn scan_cancel(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(job_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    state.session.scan_cancel(&job_id).map_err(map_err)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[derive(Deserialize)]
 struct RootsQuery {
     roots: String,
@@ -350,6 +360,7 @@ pub async fn run_server(
         .route("/v1/scan", post(scan))
         .route("/v1/scan/start", post(scan_start))
         .route("/v1/scan/jobs/{job_id}", get(scan_job))
+        .route("/v1/scan/jobs/{job_id}/cancel", post(scan_cancel))
         .route("/v1/scans/{scan_id}", get(get_scan))
         .route("/v1/suggest", post(suggest))
         .route("/v1/delete", post(delete_paths))

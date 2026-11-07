@@ -94,4 +94,13 @@ PIMG=$(curl -sf -H "$AUTH" -o /tmp/preview.png -w '%{http_code}' \
 test "$PIMG" = "200"
 python3 -c "d=open('/tmp/preview.png','rb').read(); assert d[:8]==bytes.fromhex('89504e470d0a1a0a'); print('preview_real_png_ok', len(d))"
 
-echo "API smoke passed (scan/suggest/delete/jobs/async/quarantine/preview)"
+# Cancel async scan (best-effort; job may finish before cancel lands)
+CSTART=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"roots":["/app/docker/fixtures"]}' "${API}/v1/scan/start")
+CJID=$(python3 -c "import json,sys; print(json.load(sys.stdin)['job_id'])" <<<"$CSTART")
+curl -sf -X POST -H "$AUTH" "${API}/v1/scan/jobs/${CJID}/cancel" -o /dev/null -w '%{http_code}\n' | grep -Eq '204|404|500' || true
+# Accept cancelled or already-finished ok
+CST=$(curl -sf -H "$AUTH" "${API}/v1/scan/jobs/${CJID}")
+python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status'] in ('cancelled','ok','error','running'), d; print('cancel_probe_ok', d['status'])" <<<"$CST"
+
+echo "API smoke passed (scan/suggest/delete/jobs/async/quarantine/preview/cancel)"

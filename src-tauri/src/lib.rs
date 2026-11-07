@@ -67,6 +67,11 @@ fn scan_job(state: State<'_, DesktopState>, job_id: String) -> Result<ScanJobSta
 }
 
 #[tauri::command]
+fn scan_cancel(state: State<'_, DesktopState>, job_id: String) -> Result<(), String> {
+    state.session.scan_cancel(&job_id)
+}
+
+#[tauri::command]
 fn get_scan(state: State<'_, DesktopState>, scan_id: String) -> Result<ScanResult, String> {
     state.session.get_scan(&scan_id)
 }
@@ -172,6 +177,7 @@ pub fn run() {
             scan,
             scan_start,
             scan_job,
+            scan_cancel,
             get_scan,
             suggest,
             delete,

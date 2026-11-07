@@ -43,3 +43,5 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Folders setup modes | Chooser Simple/Smart/Guided/Advanced when idle; resume Review/Confirm/mid-scan wins; `dup.setupMode.v1` |
 | 2026-11-07 | UI session resume | `dup.session.v1` persists Review/Confirm; expired server scan → clear + message |
 | 2026-11-07 | Force quarantine | `DUP_FINDER_FORCE_QUARANTINE=1` skips OS Trash (Docker API / restore tests) |
+| 2026-11-07 | Scan cancel | `cancel_flag` on engine; `POST /v1/scan/jobs/{id}/cancel`; job status `cancelled` |
+| 2026-11-07 | Content identity UX | Groups show BLAKE3 verify strip; Compare modal; delete still TOCTOU re-hashes |

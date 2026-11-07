@@ -30,6 +30,7 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Folders setup modes | Simple/Smart/Guided/Advanced chooser; resume wins over gate |
 | Session resume + Review polish | `dup.session.v1`; empty states; quick places; thumbs; quarantine undo toast |
 | Full local test matrix | `docker/test/full_matrix.sh` (fixtures, unit, UI, API, quarantine RT, CLI progress) |
+| Cancel / compare / meta / E2E | Scan cancel; Compare modal; FileMeta; custom checkboxes; Playwright `docker/test/e2e.sh` |
 
 ## Explicitly deferred to runners / CI (next phase)
 

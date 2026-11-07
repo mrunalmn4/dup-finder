@@ -46,6 +46,7 @@ pub enum ScanJobStatus {
     Running,
     Ok,
     Error,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +63,7 @@ pub struct ScanJobState {
 pub struct AppSession {
     scans: Mutex<HashMap<String, ScanResult>>,
     scan_jobs: Mutex<HashMap<String, ScanJobState>>,
+    scan_cancel: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
     /// Roots from the most recent completed scan (for preview allowlist).
     last_roots: Mutex<Vec<PathBuf>>,
 }
@@ -80,6 +82,7 @@ impl AppSession {
             index_path: req.index_path,
             filters: req.filters,
             on_progress: None,
+            cancel_flag: None,
         })
         .map_err(|e| e.to_string())?;
         let scan_id = Uuid::new_v4().to_string();
@@ -122,6 +125,12 @@ impl AppSession {
             .map_err(|_| "lock poisoned".to_string())?
             .insert(job_id.clone(), state);
 
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.scan_cancel
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?
+            .insert(job_id.clone(), Arc::clone(&cancel));
+
         let session = Arc::clone(self);
         let jid = job_id.clone();
         thread::spawn(move || {
@@ -139,6 +148,7 @@ impl AppSession {
                 index_path: req.index_path.clone(),
                 filters: req.filters.clone(),
                 on_progress: Some(on_progress),
+                cancel_flag: Some(cancel),
             });
             let mut map = match session.scan_jobs.lock() {
                 Ok(m) => m,
@@ -162,12 +172,33 @@ impl AppSession {
                     st.progress.phase = ScanPhase::Done;
                 }
                 Err(e) => {
-                    st.status = ScanJobStatus::Error;
-                    st.error = Some(e.to_string());
+                    let msg = e.to_string();
+                    if msg.contains("cancelled") {
+                        st.status = ScanJobStatus::Cancelled;
+                        st.error = Some("cancelled".into());
+                    } else {
+                        st.status = ScanJobStatus::Error;
+                        st.error = Some(msg);
+                    }
                 }
+            }
+            if let Ok(mut flags) = session.scan_cancel.lock() {
+                flags.remove(&jid);
             }
         });
         Ok(job_id)
+    }
+
+    pub fn scan_cancel(&self, job_id: &str) -> Result<(), String> {
+        let flag = self
+            .scan_cancel
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?
+            .get(job_id)
+            .cloned()
+            .ok_or_else(|| "scan job not running".to_string())?;
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
     }
 
     pub fn scan_job(&self, job_id: &str) -> Result<ScanJobState, String> {

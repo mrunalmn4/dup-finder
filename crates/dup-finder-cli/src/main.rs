@@ -260,6 +260,7 @@ fn run() -> Result<ExitCode, String> {
                 index_path: index,
                 filters,
                 on_progress,
+                cancel_flag: None,
             })
             .map_err(|e| e.to_string())?;
             if summary && !quiet {

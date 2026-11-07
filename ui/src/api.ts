@@ -59,7 +59,7 @@ export type ScanProgress = {
 
 export type ScanJobState = {
   job_id: string;
-  status: "running" | "ok" | "error" | string;
+  status: "running" | "ok" | "error" | "cancelled" | string;
   progress: ScanProgress;
   scan_id: string | null;
   error: string | null;
@@ -238,6 +238,20 @@ export const client = {
       return invokeTauri<ScanJobState>("scan_job", { job_id });
     }
     return api<ScanJobState>(`/v1/scan/jobs/${encodeURIComponent(job_id)}`);
+  },
+  scanCancel: async (job_id: string) => {
+    if (isTauri()) {
+      await invokeTauri("scan_cancel", { job_id });
+      return;
+    }
+    const res = await fetch(
+      `${baseUrl()}/v1/scan/jobs/${encodeURIComponent(job_id)}/cancel`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token()}` },
+      },
+    );
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   },
   getScan: async (scan_id: string) => {
     if (isTauri()) {

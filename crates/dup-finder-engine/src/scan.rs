@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
@@ -39,6 +39,8 @@ pub struct ScanOptions {
     pub index_path: Option<PathBuf>,
     pub filters: ScanFilters,
     pub on_progress: Option<ProgressCallback>,
+    /// When set and true, scan stops and returns `EngineError::Message("cancelled")`.
+    pub cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl Default for ScanOptions {
@@ -48,6 +50,7 @@ impl Default for ScanOptions {
             index_path: None,
             filters: ScanFilters::sensible_defaults(),
             on_progress: None,
+            cancel_flag: None,
         }
     }
 }
@@ -60,8 +63,18 @@ impl std::fmt::Debug for ScanOptions {
             .field("index_path", &self.index_path)
             .field("filters", &self.filters)
             .field("on_progress", &self.on_progress.as_ref().map(|_| "Some(..)"))
+            .field(
+                "cancel_flag",
+                &self.cancel_flag.as_ref().map(|f| f.load(Ordering::Relaxed)),
+            )
             .finish()
     }
+}
+
+fn is_cancelled(flag: &Option<Arc<AtomicBool>>) -> bool {
+    flag.as_ref()
+        .map(|f| f.load(Ordering::Relaxed))
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -96,6 +109,7 @@ pub fn scan_roots(roots: &[PathBuf]) -> Result<ScanResult, EngineError> {
         index_path: None,
         filters: ScanFilters::empty(),
         on_progress: None,
+        cancel_flag: None,
     })
     .map(|(r, _)| r)
 }
@@ -109,6 +123,7 @@ fn emit(cb: &Option<ProgressCallback>, progress: ScanProgress) {
 pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), EngineError> {
     let filters = opts.filters;
     let on_progress = opts.on_progress.clone();
+    let cancel_flag = opts.cancel_flag.clone();
     let mut canonical_roots = Vec::new();
     for r in &opts.roots {
         canonical_roots.push(realpath(r)?);
@@ -185,6 +200,9 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
             if !entry.file_type().is_file() {
                 continue;
             }
+            if is_cancelled(&cancel_flag) {
+                return Err(EngineError::Message("cancelled".into()));
+            }
             let path = entry.path().to_path_buf();
             if is_index_sidecar(&path, index_path.as_deref()) {
                 continue;
@@ -256,9 +274,15 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
     let all_records: Mutex<HashMap<PathBuf, FileRecord>> = Mutex::new(HashMap::new());
 
     size_buckets.par_iter().for_each(|(size, paths)| {
+        if is_cancelled(&cancel_flag) {
+            return;
+        }
         let partial_results: Vec<(PathBuf, Result<String, String>)> = paths
             .par_iter()
             .map(|path| {
+                if is_cancelled(&cancel_flag) {
+                    return (path.clone(), Err("cancelled".into()));
+                }
                 (
                     path.clone(),
                     partial_fingerprint(path, *size).map_err(|e| e.to_string()),
@@ -343,6 +367,10 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
             }
         }
     });
+
+    if is_cancelled(&cancel_flag) {
+        return Err(EngineError::Message("cancelled".into()));
+    }
 
     let skip_reasons = skip_mu.into_inner().unwrap_or_default();
     let all_records = all_records.into_inner().unwrap_or_default();
@@ -546,6 +574,7 @@ mod tests {
             index_path: Some(index.clone()),
             filters: ScanFilters::empty(),
                     on_progress: None,
+                    cancel_flag: None,
         };
         let (_r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(s1.hashes_computed, 50);
@@ -572,6 +601,7 @@ mod tests {
             index_path: Some(index),
             filters: ScanFilters::empty(),
                     on_progress: None,
+                    cancel_flag: None,
         };
         let (r1, _) = scan_with_options(opts.clone()).unwrap();
         let h1 = r1
@@ -619,6 +649,7 @@ mod tests {
             index_path: Some(index),
             filters: ScanFilters::empty(),
                     on_progress: None,
+                    cancel_flag: None,
         };
         let (r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(r1.files_scanned, 10_000);
@@ -646,6 +677,7 @@ mod tests {
             index_path: Some(index),
             filters: ScanFilters::empty(),
                     on_progress: None,
+                    cancel_flag: None,
         };
         let (r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(r1.files_scanned, 100_000);
@@ -671,6 +703,7 @@ mod tests {
             index_path: None,
             filters,
                     on_progress: None,
+                    cancel_flag: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -692,6 +725,7 @@ mod tests {
             index_path: None,
             filters,
                     on_progress: None,
+                    cancel_flag: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -714,6 +748,7 @@ mod tests {
             index_path: None,
             filters,
                     on_progress: None,
+                    cancel_flag: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -736,6 +771,7 @@ mod tests {
             index_path: None,
             filters,
                     on_progress: None,
+                    cancel_flag: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -756,6 +792,7 @@ mod tests {
             index_path: None,
             filters,
                     on_progress: None,
+                    cancel_flag: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -777,9 +814,28 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: None,
             filters,
-                    on_progress: None,
+            on_progress: None,
+            cancel_flag: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
+    }
+
+    #[test]
+    fn cancel_flag_stops_scan() {
+        let dir = tempdir().unwrap();
+        for i in 0..200 {
+            fs::write(dir.path().join(format!("f{i}.txt")), format!("body-{i}")).unwrap();
+        }
+        let flag = Arc::new(AtomicBool::new(true));
+        let err = scan_with_options(ScanOptions {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters: ScanFilters::empty(),
+            on_progress: None,
+            cancel_flag: Some(flag),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("cancelled"), "{err}");
     }
 }

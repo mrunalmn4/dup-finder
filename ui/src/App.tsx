@@ -16,6 +16,8 @@ import {
   type SuggestReport,
 } from "./api";
 import { exportSuggestCsv, exportSuggestJson } from "./exportReport";
+import CompareModal from "./CompareModal";
+import FileMeta, { shortHash } from "./FileMeta";
 import FoldersPanel from "./FoldersPanel";
 import HelpGuide from "./HelpGuide";
 import ModeChooser from "./ModeChooser";
@@ -162,6 +164,11 @@ export default function App() {
   const [showFullPaths, setShowFullPaths] = useState(false);
   const [undoToast, setUndoToast] = useState<{
     originalPaths: string[];
+  } | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [compare, setCompare] = useState<{
+    hash: string;
+    other: FileRecord;
   } | null>(null);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>("reclaimable");
@@ -647,6 +654,7 @@ export default function App() {
         indexPath || undefined,
         filtersForApi(filters),
       );
+      setActiveJobId(jobId);
       let job = await client.scanJob(jobId);
       while (job.status === "running") {
         setScanProgress(job.progress);
@@ -654,6 +662,9 @@ export default function App() {
         job = await client.scanJob(jobId);
       }
       setScanProgress(job.progress);
+      if (job.status === "cancelled") {
+        throw new Error("Scan cancelled");
+      }
       if (job.status === "error") {
         throw new Error(job.error || "Scan failed");
       }
@@ -677,6 +688,16 @@ export default function App() {
     } finally {
       setBusy(false);
       setScanProgress(null);
+      setActiveJobId(null);
+    }
+  }
+
+  async function cancelActiveScan() {
+    if (!activeJobId) return;
+    try {
+      await client.scanCancel(activeJobId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -1111,6 +1132,7 @@ export default function App() {
           applyPreset={applyPreset}
           loadLocations={loadLocations}
           runScan={runScan}
+          cancelScan={() => void cancelActiveScan()}
           scanProgress={scanProgress}
           restoreOpen={restoreOpen}
           setRestoreOpen={setRestoreOpen}
@@ -1353,6 +1375,11 @@ export default function App() {
                   Accept suggestion
                 </button>
               </div>
+              <p className="hash-verify ok" title={g.hash}>
+                Identical content verified (BLAKE3 {shortHash(g.hash)}) — every
+                file in this group matches byte-for-byte. Delete also re-checks
+                the hash before removing.
+              </p>
               <div className="keep-row">
                 <Thumb path={g.keep.path} mime={g.keep.mime} />
                 <div className="keep-copy">
@@ -1365,34 +1392,34 @@ export default function App() {
                     )}
                   </div>
                   <p className="keep-why">{keepReasonDetail(g.keep_reason)}</p>
-                  <div className="meta">
-                    {g.keep.mime} · {formatBytes(g.keep.size)}
-                    {cautionFor(g.keep.path, g.cautions) && (
-                      <>
-                        {" "}
-                        · {cautionReasonLabel(cautionFor(g.keep.path, g.cautions)!.reason)}
-                      </>
-                    )}
-                  </div>
+                  <FileMeta file={g.keep} showHash />
+                  {cautionFor(g.keep.path, g.cautions) && (
+                    <div className="meta">
+                      {cautionReasonLabel(cautionFor(g.keep.path, g.cautions)!.reason)}
+                    </div>
+                  )}
                 </div>
               </div>
               {g.delete_candidates.map((c) => {
                 const caution = cautionFor(c.path, g.cautions);
                 return (
                 <div key={c.path} className="candidate-row">
-                  <Thumb path={c.path} mime={c.mime} />
                   <label className="candidate">
-                    <input
-                      type="checkbox"
-                      checked={!!selected[c.path]}
-                      onChange={(e) =>
-                        setSelected((s) => ({
-                          ...s,
-                          [c.path]: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>
+                    <span className="check">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[c.path]}
+                        onChange={(e) =>
+                          setSelected((s) => ({
+                            ...s,
+                            [c.path]: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span className="check-ui" aria-hidden />
+                    </span>
+                    <Thumb path={c.path} mime={c.mime} />
+                    <span className="cand-copy">
                       <span className="path" title={c.path}>
                         {showFullPaths ? c.path : friendlyPath(c.path)}
                         <span className="badge drop">candidate</span>
@@ -1403,19 +1430,28 @@ export default function App() {
                           <span className="badge warn">caution</span>
                         )}
                       </span>
-                      <span className="meta">
-                        {c.mime} · {formatBytes(c.size)}
-                        {caution && <> · {cautionReasonLabel(caution.reason)}</>}
-                      </span>
+                      <FileMeta file={c} />
+                      {caution && (
+                        <span className="meta">{cautionReasonLabel(caution.reason)}</span>
+                      )}
                     </span>
                   </label>
-                  <button
-                    type="button"
-                    className="ghost compact"
-                    onClick={() => promoteKeep(g.hash, c)}
-                  >
-                    Keep this instead
-                  </button>
+                  <div className="cand-actions">
+                    <button
+                      type="button"
+                      className="ghost compact"
+                      onClick={() => setCompare({ hash: g.hash, other: c })}
+                    >
+                      Compare
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost compact"
+                      onClick={() => promoteKeep(g.hash, c)}
+                    >
+                      Keep this instead
+                    </button>
+                  </div>
                 </div>
               );
               })}
@@ -1650,6 +1686,21 @@ export default function App() {
             </div>
           )}
         </section>
+      )}
+
+      {compare && suggest && (
+        <CompareModal
+          keep={suggest.groups.find((x) => x.hash === compare.hash)!.keep}
+          other={compare.other}
+          keepReason={
+            suggest.groups.find((x) => x.hash === compare.hash)!.keep_reason
+          }
+          onClose={() => setCompare(null)}
+          onKeepOther={() => {
+            promoteKeep(compare.hash, compare.other);
+            setCompare(null);
+          }}
+        />
       )}
     </div>
   );

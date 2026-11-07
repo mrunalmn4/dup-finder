@@ -67,6 +67,7 @@ type Props = {
   applyPreset: (kind: "common" | "disks" | "demo" | "clear") => void;
   loadLocations: () => void;
   runScan: () => void;
+  cancelScan?: () => void;
   scanProgress: ScanProgress | null;
   restoreOpen: boolean;
   setRestoreOpen: (v: boolean | ((o: boolean) => boolean)) => void;
@@ -712,6 +713,11 @@ export default function FoldersPanel(p: Props) {
                 ? "Scanning…"
                 : `Scan ${p.roots.length || ""} place${p.roots.length === 1 ? "" : "s"}`.trim()}
             </button>
+            {p.busy && p.cancelScan && (
+              <button type="button" className="ghost" onClick={p.cancelScan}>
+                Cancel scan
+              </button>
+            )}
             {showProfilesRestore && (
               <button
                 type="button"

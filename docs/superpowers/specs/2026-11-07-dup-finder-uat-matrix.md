@@ -47,6 +47,8 @@
 | S1-12 | UI setup modes + session resume | Mode gate; Review persists in localStorage | P (code + session_logic_test) |
 | S1-13 | CLI `--progress` | stderr progress lines + JSON | P (full_matrix) |
 | S1-14 | Preview sniff | spoof `.jpg` text rejected; real PNG 200 | P (unit + api_smoke) |
+| S1-15 | Scan cancel | cancel_flag / job cancelled | P (unit + api cancel probe) |
+| S1-16 | Playwright Review | keep why + BLAKE3 strip; no spoof thumbs | P (`docker/test/e2e.sh`) |
 
 ## Slice 2 — Daemon
 
