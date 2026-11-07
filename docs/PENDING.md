@@ -1,50 +1,43 @@
 # Pending (v0.1 → next)
 
-Living backlog. Product code for slices 0–3 local path is done; items below need host, org, or a remote.
+**Local Mac/Docker path is finished.** Remaining work needs runners, a git remote, or org process.
 
-**Rule:** do not commit or claim a platform/channel “released” until that channel’s smoke test has passed (Docker suite for Linux CLI; host Tauri for macOS/Windows GUI).
+**Rule:** do not claim a platform/channel “released” until that channel’s smoke test has passed.
 
-## Built & smoked on this Mac
+## Finished locally (smoked)
 
-| Artifact | Location |
-|----------|----------|
-| Linux arm64 CLI | `artifacts/release/dup-finder-linux-arm64` |
-| Linux amd64 CLI | `artifacts/release/dup-finder-linux-x86_64` |
-| arm64 + amd64 `.deb` | `artifacts/release/dup-finder_0.1.0_{arm64,amd64}.deb` |
-| Dist tarball (both arch) | `artifacts/dist/dup-finder-0.1.0-linux-*.tar.gz` |
+| Artifact / check | Evidence |
+|------------------|----------|
+| Linux arm64 + amd64 CLI | `artifacts/release/dup-finder-linux-{arm64,x86_64}` scan fixtures |
+| `.deb` arm64 + amd64 | `dup-finder_0.1.0_{arm64,amd64}.deb` |
+| `.rpm` aarch64 + x86_64 | `dup-finder-0.1.0-1.el9.{aarch64,x86_64}.rpm` |
+| Dist tarball | `artifacts/dist/dup-finder-0.1.0-linux-*.tar.gz` |
 | SBOMs / checksums | `artifacts/release/` |
 | Docker images | `dup-finder:release`, `dup-finder:release-amd64` |
+| API smoke | `docker/test/api_smoke.sh` |
+| S1-03 UI browser UAT | connect → roots → scan → dry-run confirm |
 
-## Doable next (your Mac, no remote)
+## Explicitly deferred to runners / CI (next phase)
 
-| Item | Why pending | How |
-|------|-------------|-----|
-| rpm once | Rocky/`rpmbuild` network pull | `bash scripts/release/package-rpm.sh` |
-| S1-03 UI browser UAT | Manual | `docker compose up api ui` → scan fixtures → dry-run |
-| S1-08 Tauri launch | No host Rust/WebKit | See `docs/DESKTOP.md` |
-| OS trash (not quarantine dir) | Decision: GUI later | Platform trash APIs |
+| Item | Needs |
+|------|-------|
+| macOS `.app` / `.dmg` (S1-08) | macOS runner + Rust + Tauri |
+| Windows MSI | Windows runner + Tauri |
+| AppImage | Linux GUI runner / Tauri bundle |
+| Cosign / sigstore (P-06) | Signing secrets in CI |
+| Git remote + release tag upload | `origin` + release workflow |
+| Branch protection + required checks | Repo admin |
+| OS trash (vs quarantine dir) | Product follow-on with GUI |
 
-## Needs remote / org
+## Org / compliance (not code)
 
 | Item | Blocker |
 |------|---------|
-| Git remote + push | No `origin` configured |
-| Release tag + attach artifacts | Needs remote |
-| Cosign / sigstore (P-06) | Signing secrets + CI |
-| Branch protection + required checks | GitHub/Origin admin |
-| Policy owners (TBD in `docs/policies/`) | Assign humans + review cadence |
+| Policy owners in `docs/policies/` | Assign humans |
 | Auditor SOC 2 / ISO Type I→II | Legal entity + observation window |
 | “Certified” marketing claim | External report only |
 
-## Host CI matrix (not Docker-on-Mac)
-
-| Channel | Needs |
-|---------|-------|
-| macOS `.app` / `.dmg` | Tauri on macOS runner/host (+ install Rust) |
-| Windows MSI | Tauri on Windows runner |
-| AppImage | Tauri Linux bundle or separate packager |
-
-## Explicitly out of v1
+## Out of v1
 
 - Mobile full-disk scan
-- Multi-million-file full-hash CI (Scale C is 100k resume smoke)
+- Multi-million-file full-hash CI (Scale C = 100k resume smoke)

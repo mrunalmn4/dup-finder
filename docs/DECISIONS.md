@@ -27,3 +27,4 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Evidence pack | `docs/evidence/` indexes auditor artifacts; no “certified” claim yet |
 | 2026-11-07 | Linux binaries on Mac | arm64 native Docker + amd64 via `PLATFORM=linux/amd64`; deb via Python ar (no apt); dist tarball |
 | 2026-11-07 | macOS/Windows GUI | Still host Tauri only — no Rust on this Mac by policy |
+| 2026-11-07 | Local finish gate | Linux CLI/deb/rpm/dist + API/UI smoke done; next = runners/CI + remote |

@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Build a simple .rpm from the Linux release binary using Docker + rpmbuild.
+# Build a simple .rpm from a Linux release binary using Docker + rpmbuild.
+# Override: BIN=... RPM_ARCH=aarch64|x86_64 PLATFORM=linux/arm64|linux/amd64
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${ROOT}/artifacts/release"
-ARCH="$(uname -m)"
-case "${ARCH}" in
-  aarch64|arm64) RPM_ARCH=aarch64 ;;
-  x86_64|amd64) RPM_ARCH=x86_64 ;;
-  *) RPM_ARCH="${ARCH}" ;;
+HOST_ARCH="$(uname -m)"
+case "${HOST_ARCH}" in
+  aarch64|arm64) DEFAULT_ARCH=aarch64; DEFAULT_BIN_SUFFIX=arm64; DEFAULT_PLATFORM=linux/arm64 ;;
+  x86_64|amd64) DEFAULT_ARCH=x86_64; DEFAULT_BIN_SUFFIX=x86_64; DEFAULT_PLATFORM=linux/amd64 ;;
+  *) DEFAULT_ARCH="${HOST_ARCH}"; DEFAULT_BIN_SUFFIX="${HOST_ARCH}"; DEFAULT_PLATFORM="linux/${HOST_ARCH}" ;;
 esac
-BIN="${OUT}/dup-finder-linux-${ARCH}"
+RPM_ARCH="${RPM_ARCH:-${DEFAULT_ARCH}}"
+BIN_SUFFIX="${BIN_SUFFIX:-${DEFAULT_BIN_SUFFIX}}"
+PLATFORM="${PLATFORM:-${DEFAULT_PLATFORM}}"
+BIN="${BIN:-${OUT}/dup-finder-linux-${BIN_SUFFIX}}"
 if [[ ! -x "${BIN}" ]]; then
-  echo "missing ${BIN}; build the release binary first" >&2
+  echo "missing ${BIN}; run build-linux-docker.sh first" >&2
   exit 1
 fi
 
-STAGE="${OUT}/rpmbuild"
+STAGE="${OUT}/rpmbuild-${RPM_ARCH}"
 rm -rf "${STAGE}"
 mkdir -p "${STAGE}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 cp "${BIN}" "${STAGE}/SOURCES/dup-finder"
@@ -38,8 +42,9 @@ install -m 0755 %{_sourcedir}/dup-finder %{buildroot}/usr/local/bin/dup-finder
 /usr/local/bin/dup-finder
 EOF
 
-docker run --rm -v "${STAGE}:/root/rpmbuild" rockylinux:9 \
+docker run --rm --platform "${PLATFORM}" -v "${STAGE}:/root/rpmbuild" rockylinux:9 \
   bash -lc 'dnf install -y rpm-build >/dev/null && rpmbuild -bb /root/rpmbuild/SPECS/dup-finder.spec'
 cp "${STAGE}/RPMS/${RPM_ARCH}"/*.rpm "${OUT}/" 2>/dev/null || cp "${STAGE}/RPMS"/*/*.rpm "${OUT}/"
+rm -rf "${STAGE}"
 echo "RPM packages in ${OUT}:"
 ls -la "${OUT}"/*.rpm

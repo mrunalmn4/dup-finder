@@ -34,7 +34,7 @@
 |----|----------|--------|--------|
 | S1-01 | API scan fixtures + suggest | groups ≥ 1 | P (api_smoke) |
 | S1-02 | API delete dry-run selected | would_delete only | P (api_smoke) |
-| S1-03 | UI connect → roots → results → confirm | Manual / browser | B (host browser) |
+| S1-03 | UI connect → roots → results → confirm | Manual / browser | P (browser dry-run) |
 | S1-04 | Bearer required | 401 without token | P (api_smoke + unit) |
 | S1-05 | Non-loopback bind refused without env | Fail closed | P (unit) |
 | S1-06 | Shared app session scan→suggest→dry-run | Unit in `dup-finder-app` | P |
@@ -57,7 +57,7 @@
 | P-01 | Docker release image `scan` fixtures | groups ≥ 1 | P |
 | P-02 | SHA256SUMS + NOTICE produced | Present in artifacts/release | P |
 | P-03 | deb package script | `package-deb.sh` ready | P (arm64 `.deb` built) |
-| P-04 | rpm package script | `package-rpm.sh` ready | P (script) |
+| P-04 | rpm package | aarch64 + x86_64 `.rpm` | P (el9 packages built) |
 | P-05 | Syft SBOM (SPDX + CycloneDX) | `sbom-syft.sh` ready | P (script) |
 | P-06 | Cosign / notarize | Signed artifacts | B (org secrets) |
 | P-07 | Dist tarball | `make-dist.sh` + sha256 | P (arm64) |
