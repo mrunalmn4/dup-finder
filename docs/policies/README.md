@@ -1,13 +1,11 @@
-# Policy stubs (compliance track)
+# Policy stubs (compliance track B+C)
 
-Owners and review cadence TBD by the legal entity under audit.
+Fill owners/dates before external audit. Specs: `docs/superpowers/specs/2026-11-07-dup-finder-security-compliance.md`.
 
-Planned documents:
-
-- `secure-sdlc.md`
-- `vulnerability-management.md`
-- `incident-response.md`
-- `release-signing.md`
-- `access-control-repos-ci.md`
-
-Until filled, see `docs/superpowers/specs/2026-11-07-dup-finder-security-compliance.md`.
+| Doc | Purpose |
+|-----|---------|
+| [secure-sdlc.md](secure-sdlc.md) | Change control / PR / CI gates |
+| [vulnerability-management.md](vulnerability-management.md) | Dependency & image vulns |
+| [incident-response.md](incident-response.md) | Sev definitions & response |
+| [release-signing.md](release-signing.md) | Checksums, signing, SBOM |
+| [access-control-repos-ci.md](access-control-repos-ci.md) | Repo/CI least privilege |

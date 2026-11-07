@@ -48,7 +48,7 @@
 | S2-01 | Create job + `/run` | status ok + last_scan_id | P (api_smoke) |
 | S2-02 | List/delete jobs | list ≥1; DELETE 204 | P |
 | S2-03 | Scheduler due_jobs | Unit + 5s tick in serve | P (code) |
-| S2-04 | API without token | 401 | |
+| S2-04 | API without token | 401 | P (api_smoke) |
 
 ## Packaging smoke
 

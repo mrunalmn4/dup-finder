@@ -5,6 +5,12 @@ TOKEN="${TOKEN:-dev-token-change-me}"
 AUTH="Authorization: Bearer ${TOKEN}"
 
 curl -sf "${API}/health" | grep -q ok
+# S2-04: mutating/read APIs require bearer token
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+  -d '{"roots":["/app/docker/fixtures"]}' "${API}/v1/scan" || true)
+test "${CODE}" = "401"
+echo "unauthorized_ok"
+
 SCAN=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"roots":["/app/docker/fixtures"],"index_path":"/app/artifacts/api-smoke.sqlite"}' \
   "${API}/v1/scan")
