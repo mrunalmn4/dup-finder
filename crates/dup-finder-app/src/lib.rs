@@ -3,13 +3,15 @@ pub mod jobs;
 pub use jobs::{CreateJobRequest, JobStatus, JobStore, ScheduledJob};
 
 use dup_finder_engine::{
-    safe_delete, scan_with_options, suggest_from_scan, DeleteMode, DeleteReport, DeleteRequest,
-    FsDeleteBackend, ScanFilters, ScanOptions, ScanResult, ScanStats, SuggestReport,
+    list_quarantine, restore_quarantined, safe_delete, scan_with_options, suggest_from_scan,
+    DeleteMode, DeleteReport, DeleteRequest, FsDeleteBackend, QuarantinedFile, ScanFilters,
+    ScanOptions, ScanPhase, ScanProgress, ScanResult, ScanStats, SuggestReport,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,7 +21,7 @@ pub struct ScanResponse {
     pub result: ScanResult,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ScanRequest {
     pub roots: Vec<PathBuf>,
     pub index_path: Option<PathBuf>,
@@ -38,9 +40,30 @@ pub struct DeleteRequestDto {
     pub confirm: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanJobStatus {
+    Running,
+    Ok,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanJobState {
+    pub job_id: String,
+    pub status: ScanJobStatus,
+    pub progress: ScanProgress,
+    pub scan_id: Option<String>,
+    pub error: Option<String>,
+    pub stats: Option<ScanStats>,
+}
+
 #[derive(Default)]
 pub struct AppSession {
     scans: Mutex<HashMap<String, ScanResult>>,
+    scan_jobs: Mutex<HashMap<String, ScanJobState>>,
+    /// Roots from the most recent completed scan (for preview allowlist).
+    last_roots: Mutex<Vec<PathBuf>>,
 }
 
 impl AppSession {
@@ -53,9 +76,10 @@ impl AppSession {
             return Err("roots required".into());
         }
         let (result, stats) = scan_with_options(ScanOptions {
-            roots: req.roots,
+            roots: req.roots.clone(),
             index_path: req.index_path,
             filters: req.filters,
+            on_progress: None,
         })
         .map_err(|e| e.to_string())?;
         let scan_id = Uuid::new_v4().to_string();
@@ -63,11 +87,96 @@ impl AppSession {
             .lock()
             .map_err(|_| "lock poisoned".to_string())?
             .insert(scan_id.clone(), result.clone());
+        *self
+            .last_roots
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())? = result.roots.clone();
         Ok(ScanResponse {
             scan_id,
             stats,
             result,
         })
+    }
+
+    /// Start a background scan; poll with `scan_job`.
+    pub fn scan_start(self: &Arc<Self>, req: ScanRequest) -> Result<String, String> {
+        if req.roots.is_empty() {
+            return Err("roots required".into());
+        }
+        let job_id = Uuid::new_v4().to_string();
+        let state = ScanJobState {
+            job_id: job_id.clone(),
+            status: ScanJobStatus::Running,
+            progress: ScanProgress {
+                phase: ScanPhase::Walk,
+                files_seen: 0,
+                files_hashed: 0,
+                bytes_hashed: 0,
+            },
+            scan_id: None,
+            error: None,
+            stats: None,
+        };
+        self.scan_jobs
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?
+            .insert(job_id.clone(), state);
+
+        let session = Arc::clone(self);
+        let jid = job_id.clone();
+        thread::spawn(move || {
+            let progress_jobs = Arc::clone(&session);
+            let progress_id = jid.clone();
+            let on_progress: dup_finder_engine::ProgressCallback = Arc::new(move |p| {
+                if let Ok(mut map) = progress_jobs.scan_jobs.lock() {
+                    if let Some(st) = map.get_mut(&progress_id) {
+                        st.progress = p;
+                    }
+                }
+            });
+            let result = scan_with_options(ScanOptions {
+                roots: req.roots.clone(),
+                index_path: req.index_path.clone(),
+                filters: req.filters.clone(),
+                on_progress: Some(on_progress),
+            });
+            let mut map = match session.scan_jobs.lock() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            let Some(st) = map.get_mut(&jid) else {
+                return;
+            };
+            match result {
+                Ok((scan_result, stats)) => {
+                    let scan_id = Uuid::new_v4().to_string();
+                    if let Ok(mut scans) = session.scans.lock() {
+                        scans.insert(scan_id.clone(), scan_result.clone());
+                    }
+                    if let Ok(mut roots) = session.last_roots.lock() {
+                        *roots = scan_result.roots.clone();
+                    }
+                    st.status = ScanJobStatus::Ok;
+                    st.scan_id = Some(scan_id);
+                    st.stats = Some(stats);
+                    st.progress.phase = ScanPhase::Done;
+                }
+                Err(e) => {
+                    st.status = ScanJobStatus::Error;
+                    st.error = Some(e.to_string());
+                }
+            }
+        });
+        Ok(job_id)
+    }
+
+    pub fn scan_job(&self, job_id: &str) -> Result<ScanJobState, String> {
+        self.scan_jobs
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?
+            .get(job_id)
+            .cloned()
+            .ok_or_else(|| "scan job not found".into())
     }
 
     pub fn get_scan(&self, scan_id: &str) -> Result<ScanResult, String> {
@@ -87,8 +196,6 @@ impl AppSession {
     pub fn delete(&self, req: DeleteRequestDto) -> Result<DeleteReport, String> {
         let mode = parse_mode(&req.mode)?;
         let scan = self.get_scan(&req.scan_id)?;
-        // Empty keep → derive from suggest (fail closed for raw API clients).
-        // Non-empty keep → trust authenticated client (UI may override via "Keep this instead").
         let keep_paths = if req.keep.is_empty() {
             suggest_from_scan(&scan)
                 .groups
@@ -108,6 +215,55 @@ impl AppSession {
         };
         let (report, _) = safe_delete(&engine_req, &FsDeleteBackend);
         Ok(report)
+    }
+
+    pub fn quarantine_list(&self, roots: &[PathBuf]) -> Result<Vec<QuarantinedFile>, String> {
+        list_quarantine(roots).map_err(|e| e.to_string())
+    }
+
+    pub fn quarantine_restore(
+        &self,
+        path: PathBuf,
+        roots: Vec<PathBuf>,
+    ) -> Result<PathBuf, String> {
+        restore_quarantined(&path, &roots).map_err(|e| e.to_string())
+    }
+
+    /// Preview bytes for an image under last scan roots (5 MiB cap).
+    pub fn preview_image(&self, path: &Path) -> Result<(String, Vec<u8>), String> {
+        const MAX: u64 = 5 * 1024 * 1024;
+        let roots = self
+            .last_roots
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?
+            .clone();
+        if roots.is_empty() {
+            return Err("no scan roots; run a scan first".into());
+        }
+        let real = dup_finder_engine::path_safe::realpath(path).map_err(|e| e.to_string())?;
+        if !dup_finder_engine::path_safe::under_any_root(&real, &roots) {
+            return Err("path outside scan roots".into());
+        }
+        let meta = std::fs::metadata(&real).map_err(|e| e.to_string())?;
+        if meta.len() > MAX {
+            return Err("preview too large".into());
+        }
+        let ext = real
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let mime = match ext.as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "bmp" => "image/bmp",
+            "svg" => "image/svg+xml",
+            _ => return Err("not a previewable image".into()),
+        };
+        let bytes = std::fs::read(&real).map_err(|e| e.to_string())?;
+        Ok((mime.into(), bytes))
     }
 }
 
@@ -159,7 +315,6 @@ mod tests {
             dup_finder_engine::DeleteOutcomeKind::WouldDelete
         );
 
-        // Empty client keep still protects suggested keep (server-side union).
         let report_keep = app
             .delete(DeleteRequestDto {
                 scan_id: scan_id.clone(),
@@ -175,7 +330,6 @@ mod tests {
         );
         assert_eq!(report_keep.outcomes[0].reason, "IS_KEEP");
 
-        // Mutating trash without confirm is refused.
         let report_trash = app
             .delete(DeleteRequestDto {
                 scan_id,
@@ -187,5 +341,31 @@ mod tests {
             .unwrap();
         assert!(report_trash.refused);
         let _ = tempdir;
+    }
+
+    #[test]
+    fn async_scan_job_completes() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docker/fixtures")
+            .canonicalize()
+            .unwrap();
+        let app = Arc::new(AppSession::new());
+        let job_id = app
+            .scan_start(ScanRequest {
+                roots: vec![fixtures],
+                index_path: None,
+                filters: ScanFilters::sensible_defaults(),
+            })
+            .unwrap();
+        for _ in 0..200 {
+            let st = app.scan_job(&job_id).unwrap();
+            if st.status != ScanJobStatus::Running {
+                assert_eq!(st.status, ScanJobStatus::Ok);
+                assert!(st.scan_id.is_some());
+                return;
+            }
+            thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("scan job did not finish");
     }
 }

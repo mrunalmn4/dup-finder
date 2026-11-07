@@ -5,17 +5,40 @@ use crate::index::ScanIndex;
 use crate::mime::sniff_mime;
 use crate::model::{DuplicateGroup, FileRecord, ScanResult, SkipEvent};
 use crate::path_safe::realpath;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanPhase {
+    Walk,
+    Hash,
+    Done,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanProgress {
+    pub phase: ScanPhase,
+    pub files_seen: usize,
+    pub files_hashed: usize,
+    pub bytes_hashed: u64,
+}
+
+pub type ProgressCallback = Arc<dyn Fn(ScanProgress) + Send + Sync>;
+
+#[derive(Clone)]
 pub struct ScanOptions {
     pub roots: Vec<PathBuf>,
     /// Optional SQLite cache for resumable / incremental hashing.
     pub index_path: Option<PathBuf>,
     pub filters: ScanFilters,
+    pub on_progress: Option<ProgressCallback>,
 }
 
 impl Default for ScanOptions {
@@ -24,7 +47,20 @@ impl Default for ScanOptions {
             roots: Vec::new(),
             index_path: None,
             filters: ScanFilters::sensible_defaults(),
+            on_progress: None,
         }
+    }
+}
+
+// Manual Debug — callbacks are not Debug.
+impl std::fmt::Debug for ScanOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScanOptions")
+            .field("roots", &self.roots)
+            .field("index_path", &self.index_path)
+            .field("filters", &self.filters)
+            .field("on_progress", &self.on_progress.as_ref().map(|_| "Some(..)"))
+            .finish()
     }
 }
 
@@ -59,12 +95,20 @@ pub fn scan_roots(roots: &[PathBuf]) -> Result<ScanResult, EngineError> {
         roots: roots.to_vec(),
         index_path: None,
         filters: ScanFilters::empty(),
+        on_progress: None,
     })
     .map(|(r, _)| r)
 }
 
+fn emit(cb: &Option<ProgressCallback>, progress: ScanProgress) {
+    if let Some(f) = cb {
+        f(progress);
+    }
+}
+
 pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), EngineError> {
     let filters = opts.filters;
+    let on_progress = opts.on_progress.clone();
     let mut canonical_roots = Vec::new();
     for r in &opts.roots {
         canonical_roots.push(realpath(r)?);
@@ -82,9 +126,7 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
                 }
                 exclude_prefixes.push(c);
             }
-            Err(_) => {
-                // Non-existent exclude is a no-op (fail open for missing paths only).
-            }
+            Err(_) => {}
         }
     }
 
@@ -93,27 +135,34 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
         .as_ref()
         .and_then(|p| realpath(p).ok().or_else(|| Some(p.clone())));
     let index = match &opts.index_path {
-        Some(p) => Some(ScanIndex::open(p)?),
+        Some(p) => Some(Mutex::new(ScanIndex::open(p)?)),
         None => None,
     };
-    let mut stats = ScanStats::default();
 
     let mut skip_reasons = Vec::new();
     let mut by_size: HashMap<u64, Vec<PathBuf>> = HashMap::new();
     let mut meta_by_path: HashMap<PathBuf, fs::Metadata> = HashMap::new();
     let mut files_scanned = 0usize;
 
+    emit(
+        &on_progress,
+        ScanProgress {
+            phase: ScanPhase::Walk,
+            files_seen: 0,
+            files_hashed: 0,
+            bytes_hashed: 0,
+        },
+    );
+
     for root in &canonical_roots {
         let mut walker = WalkDir::new(root).follow_links(false);
         if let Some(d) = filters.max_depth {
-            // WalkDir depth 0 = root only; user max_depth 1 = root + children.
             walker = walker.max_depth(d);
         }
         for entry in walker.into_iter().filter_entry(|e| {
             if e.depth() == 0 {
                 return true;
             }
-            // Prune directories only; files get SkipEvent reasons via file_allowed.
             if e.file_type().is_dir() {
                 !filters.should_skip_dir_entry(e.path(), &exclude_prefixes)
             } else {
@@ -166,51 +215,151 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
                 continue;
             }
             files_scanned += 1;
+            if files_scanned % 250 == 0 {
+                emit(
+                    &on_progress,
+                    ScanProgress {
+                        phase: ScanPhase::Walk,
+                        files_seen: files_scanned,
+                        files_hashed: 0,
+                        bytes_hashed: 0,
+                    },
+                );
+            }
             by_size.entry(size).or_default().push(path.clone());
             meta_by_path.insert(path, meta);
         }
     }
 
-    // Pipeline: unique sizes cannot be content-duplicates → skip hashing.
-    // Same size → partial fingerprint → only colliding partials get full BLAKE3.
-    let mut all_records: HashMap<PathBuf, FileRecord> = HashMap::new();
-    for (size, paths) in &by_size {
-        if paths.len() < 2 {
-            continue;
-        }
+    emit(
+        &on_progress,
+        ScanProgress {
+            phase: ScanPhase::Hash,
+            files_seen: files_scanned,
+            files_hashed: 0,
+            bytes_hashed: 0,
+        },
+    );
+
+    let skip_mu = Mutex::new(skip_reasons);
+    let files_hashed = AtomicUsize::new(0);
+    let bytes_hashed = AtomicU64::new(0);
+    let computed = AtomicUsize::new(0);
+    let reused = AtomicUsize::new(0);
+
+    // Collect (size, paths) buckets that need hashing.
+    let size_buckets: Vec<(u64, Vec<PathBuf>)> = by_size
+        .into_iter()
+        .filter(|(_, paths)| paths.len() >= 2)
+        .collect();
+
+    let all_records: Mutex<HashMap<PathBuf, FileRecord>> = Mutex::new(HashMap::new());
+
+    size_buckets.par_iter().for_each(|(size, paths)| {
+        let partial_results: Vec<(PathBuf, Result<String, String>)> = paths
+            .par_iter()
+            .map(|path| {
+                (
+                    path.clone(),
+                    partial_fingerprint(path, *size).map_err(|e| e.to_string()),
+                )
+            })
+            .collect();
+
         let mut partial_buckets: HashMap<String, Vec<PathBuf>> = HashMap::new();
-        for path in paths {
-            match partial_fingerprint(path, *size) {
-                Ok(fp) => partial_buckets.entry(fp).or_default().push(path.clone()),
-                Err(e) => skip_reasons.push(SkipEvent {
-                    path: path.clone(),
-                    reason: format!("partial_hash:{e}"),
-                }),
+        for (path, res) in partial_results {
+            match res {
+                Ok(fp) => partial_buckets.entry(fp).or_default().push(path),
+                Err(e) => {
+                    if let Ok(mut g) = skip_mu.lock() {
+                        g.push(SkipEvent {
+                            path,
+                            reason: format!("partial_hash:{e}"),
+                        });
+                    }
+                }
             }
         }
+
         for (_fp, candidates) in partial_buckets {
             if candidates.len() < 2 {
                 continue;
             }
-            for path in candidates {
-                let Some(meta) = meta_by_path.get(&path) else {
-                    continue;
-                };
-                match build_record_cached(&path, *size, meta, index.as_ref(), &mut stats) {
-                    Ok(rec) => {
-                        if let Some(idx) = index.as_ref() {
-                            let _ = idx.upsert(&rec);
+            let full: Vec<(PathBuf, Result<FileRecord, String>)> = candidates
+                .par_iter()
+                .map(|path| {
+                    let Some(meta) = meta_by_path.get(path) else {
+                        return (path.clone(), Err("missing_meta".into()));
+                    };
+                    let mut local_stats = ScanStats::default();
+                    let idx_guard = index.as_ref().and_then(|m| m.lock().ok());
+                    let idx_ref = idx_guard.as_deref();
+                    let res =
+                        build_record_cached(path, *size, meta, idx_ref, &mut local_stats)
+                            .map_err(|e| e.to_string());
+                    if let Ok(ref rec) = res {
+                        if let Some(ref g) = idx_guard {
+                            let _ = g.upsert(rec);
                         }
-                        all_records.insert(path, rec);
+                        computed.fetch_add(local_stats.hashes_computed, Ordering::Relaxed);
+                        reused.fetch_add(local_stats.hashes_reused, Ordering::Relaxed);
+                        files_hashed.fetch_add(1, Ordering::Relaxed);
+                        bytes_hashed.fetch_add(*size, Ordering::Relaxed);
+                        let n = files_hashed.load(Ordering::Relaxed);
+                        if n % 50 == 0 {
+                            emit(
+                                &on_progress,
+                                ScanProgress {
+                                    phase: ScanPhase::Hash,
+                                    files_seen: files_scanned,
+                                    files_hashed: n,
+                                    bytes_hashed: bytes_hashed.load(Ordering::Relaxed),
+                                },
+                            );
+                        }
                     }
-                    Err(e) => skip_reasons.push(SkipEvent {
-                        path,
-                        reason: format!("hash:{e}"),
-                    }),
+                    (path.clone(), res)
+                })
+                .collect();
+
+            for (path, res) in full {
+                match res {
+                    Ok(rec) => {
+                        if let Ok(mut map) = all_records.lock() {
+                            map.insert(path, rec);
+                        }
+                    }
+                    Err(e) => {
+                        if e != "missing_meta" {
+                            if let Ok(mut g) = skip_mu.lock() {
+                                g.push(SkipEvent {
+                                    path,
+                                    reason: format!("hash:{e}"),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
-    }
+    });
+
+    let skip_reasons = skip_mu.into_inner().unwrap_or_default();
+    let all_records = all_records.into_inner().unwrap_or_default();
+    let stats = ScanStats {
+        hashes_computed: computed.load(Ordering::Relaxed),
+        hashes_reused: reused.load(Ordering::Relaxed),
+    };
+
+    emit(
+        &on_progress,
+        ScanProgress {
+            phase: ScanPhase::Done,
+            files_seen: files_scanned,
+            files_hashed: files_hashed.load(Ordering::Relaxed),
+            bytes_hashed: bytes_hashed.load(Ordering::Relaxed),
+        },
+    );
 
     let records: Vec<FileRecord> = all_records.values().cloned().collect();
     let mut grouped: HashMap<String, Vec<FileRecord>> = HashMap::new();
@@ -396,6 +545,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index.clone()),
             filters: ScanFilters::empty(),
+                    on_progress: None,
         };
         let (_r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(s1.hashes_computed, 50);
@@ -421,6 +571,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index),
             filters: ScanFilters::empty(),
+                    on_progress: None,
         };
         let (r1, _) = scan_with_options(opts.clone()).unwrap();
         let h1 = r1
@@ -467,6 +618,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index),
             filters: ScanFilters::empty(),
+                    on_progress: None,
         };
         let (r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(r1.files_scanned, 10_000);
@@ -493,6 +645,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index),
             filters: ScanFilters::empty(),
+                    on_progress: None,
         };
         let (r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(r1.files_scanned, 100_000);
@@ -517,6 +670,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: None,
             filters,
+                    on_progress: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -537,6 +691,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: None,
             filters,
+                    on_progress: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -558,6 +713,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: None,
             filters,
+                    on_progress: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -579,6 +735,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: None,
             filters,
+                    on_progress: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -598,6 +755,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: None,
             filters,
+                    on_progress: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);
@@ -619,6 +777,7 @@ mod tests {
             roots: vec![dir.path().to_path_buf()],
             index_path: None,
             filters,
+                    on_progress: None,
         })
         .unwrap();
         assert_eq!(r.files_scanned, 2);

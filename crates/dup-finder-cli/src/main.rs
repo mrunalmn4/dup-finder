@@ -3,10 +3,11 @@ mod serve;
 use clap::{Parser, Subcommand, ValueEnum};
 use dup_finder_engine::{
     safe_delete, scan_with_options, suggest_from_scan, DeleteMode, DeleteRequest, FileCategory,
-    FsDeleteBackend, ScanFilters, ScanOptions, ScanResult,
+    FsDeleteBackend, ScanFilters, ScanOptions, ScanProgress, ScanResult,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -57,6 +58,9 @@ enum Commands {
         /// Limit to categories: photos, videos, documents, audio, archives, other
         #[arg(long = "category", value_enum)]
         categories: Vec<CliCategory>,
+        /// Print walk/hash progress on stderr
+        #[arg(long, default_value_t = false)]
+        progress: bool,
     },
     /// Suggest which duplicate to keep (never deletes)
     Suggest {
@@ -227,6 +231,7 @@ fn run() -> Result<ExitCode, String> {
             include_extensions,
             exclude_extensions,
             categories,
+            progress,
         } => {
             let filters = build_scan_filters(
                 hidden,
@@ -240,10 +245,21 @@ fn run() -> Result<ExitCode, String> {
                 exclude_extensions,
                 categories,
             );
+            let on_progress = if progress {
+                Some(Arc::new(|p: ScanProgress| {
+                    eprintln!(
+                        "progress\t{:?}\tseen={}\thashed={}\tbytes={}",
+                        p.phase, p.files_seen, p.files_hashed, p.bytes_hashed
+                    );
+                }) as dup_finder_engine::ProgressCallback)
+            } else {
+                None
+            };
             let (result, stats) = scan_with_options(ScanOptions {
                 roots: paths,
                 index_path: index,
                 filters,
+                on_progress,
             })
             .map_err(|e| e.to_string())?;
             if summary && !quiet {

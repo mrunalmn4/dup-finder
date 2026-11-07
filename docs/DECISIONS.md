@@ -38,3 +38,5 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Windows storage | Roots = drive letters / UNC (`D:\`, `\\server\share`), not Unix mounts |
 | 2026-11-07 | Scan location UX | Toggleable drive/folder tiles from `list_suggested_locations` (API + Tauri); Browse multi-select desktop-only; browser lists API host FS |
 | 2026-11-07 | Scan filters | `ScanFilters` on engine/API/CLI/jobs; sensible defaults (skip node_modules/.git, hide dotfiles); UI Where+What with localStorage |
+| 2026-11-07 | Async scan progress | `ScanProgress` callback; `POST /v1/scan/start` + poll job; sync `POST /v1/scan` kept; CLI `--progress`; rayon parallel hash in size buckets |
+| 2026-11-07 | Quarantine restore | List/restore only under `.dup-finder-trash` within approved roots; OS Trash restore out of scope |

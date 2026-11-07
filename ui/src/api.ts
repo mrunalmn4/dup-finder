@@ -50,6 +50,43 @@ export type ScanResponse = {
   result: ScanResult;
 };
 
+export type ScanProgress = {
+  phase: "walk" | "hash" | "done" | string;
+  files_seen: number;
+  files_hashed: number;
+  bytes_hashed: number;
+};
+
+export type ScanJobState = {
+  job_id: string;
+  status: "running" | "ok" | "error" | string;
+  progress: ScanProgress;
+  scan_id: string | null;
+  error: string | null;
+  stats: { hashes_computed: number; hashes_reused: number } | null;
+};
+
+export type QuarantinedFile = {
+  path: string;
+  original_parent: string;
+  name: string;
+  size: number;
+};
+
+export type ScheduledJob = {
+  id: string;
+  roots: string[];
+  index_path: string | null;
+  interval_secs: number;
+  enabled: boolean;
+  status: string;
+  last_run_unix: number | null;
+  last_scan_id: string | null;
+  last_error: string | null;
+  last_groups: number | null;
+  last_reclaimable_bytes: number | null;
+};
+
 declare global {
   interface Window {
     __TAURI_INTERNALS__?: unknown;
@@ -176,6 +213,115 @@ export const client = {
         index_path: index_path || null,
         filters: filters ?? undefined,
       }),
+    });
+  },
+  scanStart: async (roots: string[], index_path?: string, filters?: ScanFilters) => {
+    if (isTauri()) {
+      return invokeTauri<string>("scan_start", {
+        roots,
+        index_path: index_path ?? null,
+        filters: filters ?? null,
+      });
+    }
+    const res = await api<{ job_id: string }>("/v1/scan/start", {
+      method: "POST",
+      body: JSON.stringify({
+        roots,
+        index_path: index_path || null,
+        filters: filters ?? undefined,
+      }),
+    });
+    return res.job_id;
+  },
+  scanJob: async (job_id: string) => {
+    if (isTauri()) {
+      return invokeTauri<ScanJobState>("scan_job", { job_id });
+    }
+    return api<ScanJobState>(`/v1/scan/jobs/${encodeURIComponent(job_id)}`);
+  },
+  getScan: async (scan_id: string) => {
+    if (isTauri()) {
+      return invokeTauri<ScanResult>("get_scan", { scan_id });
+    }
+    return api<ScanResult>(`/v1/scans/${encodeURIComponent(scan_id)}`);
+  },
+  quarantineList: async (roots: string[]) => {
+    if (isTauri()) {
+      return invokeTauri<QuarantinedFile[]>("quarantine_list", { roots });
+    }
+    const q = encodeURIComponent(roots.join("\n"));
+    return api<QuarantinedFile[]>(`/v1/quarantine?roots=${q}`);
+  },
+  quarantineRestore: async (path: string, roots: string[]) => {
+    if (isTauri()) {
+      return invokeTauri<string>("quarantine_restore", { path, roots });
+    }
+    const res = await api<{ path: string }>("/v1/restore", {
+      method: "POST",
+      body: JSON.stringify({ path, roots }),
+    });
+    return res.path;
+  },
+  previewUrl: async (path: string): Promise<string | null> => {
+    try {
+      if (isTauri()) {
+        const [mime, bytes] = await invokeTauri<[string, number[]]>("preview_image", {
+          path,
+        });
+        const u8 = new Uint8Array(bytes);
+        return URL.createObjectURL(new Blob([u8], { type: mime }));
+      }
+      const res = await fetch(
+        `${baseUrl()}/v1/preview?path=${encodeURIComponent(path)}`,
+        { headers: { Authorization: `Bearer ${token()}` } },
+      );
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  },
+  jobsList: async () => {
+    if (isTauri()) return invokeTauri<ScheduledJob[]>("jobs_list");
+    return api<ScheduledJob[]>("/v1/jobs");
+  },
+  jobsCreate: async (body: {
+    roots: string[];
+    index_path?: string | null;
+    filters?: ScanFilters;
+    interval_secs: number;
+    enabled: boolean;
+  }) => {
+    if (isTauri()) {
+      return invokeTauri<ScheduledJob>("jobs_create", {
+        roots: body.roots,
+        index_path: body.index_path ?? null,
+        filters: body.filters ?? null,
+        interval_secs: body.interval_secs,
+        enabled: body.enabled,
+      });
+    }
+    return api<ScheduledJob>("/v1/jobs", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  jobsDelete: async (job_id: string) => {
+    if (isTauri()) {
+      await invokeTauri("jobs_delete", { job_id });
+      return;
+    }
+    const res = await fetch(`${baseUrl()}/v1/jobs/${encodeURIComponent(job_id)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token()}` },
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  },
+  jobsRun: async (job_id: string) => {
+    if (isTauri()) return invokeTauri<ScheduledJob>("jobs_run", { job_id });
+    return api<ScheduledJob>(`/v1/jobs/${encodeURIComponent(job_id)}/run`, {
+      method: "POST",
     });
   },
   suggest: async (scan_id: string) => {

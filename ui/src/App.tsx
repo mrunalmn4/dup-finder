@@ -11,11 +11,27 @@ import {
   type DeleteReport,
   type FileCaution,
   type FileRecord,
+  type QuarantinedFile,
+  type ScanProgress,
+  type ScheduledJob,
   type SuggestedLocation,
   type SuggestReport,
 } from "./api";
+import { exportSuggestCsv, exportSuggestJson } from "./exportReport";
 import HelpGuide from "./HelpGuide";
 import Onboarding from "./Onboarding";
+import {
+  deleteProfile,
+  loadProfiles,
+  upsertProfile,
+  type ScanProfile,
+} from "./profiles";
+import {
+  filterSortGroups,
+  type CautionFilter,
+  type SortBy,
+  type ViewMode,
+} from "./reviewView";
 import {
   ALL_CATEGORIES,
   CATEGORY_LABELS,
@@ -31,6 +47,7 @@ import {
   type ScanFilters,
 } from "./scanFilters";
 import { cautionReasonLabel, keepReasonLabel } from "./suggestLabels";
+import Thumb from "./Thumb";
 
 type Step = "roots" | "results" | "confirm";
 
@@ -100,6 +117,21 @@ export default function App() {
     computed: number;
     reused: number;
   } | null>(null);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [sortBy, setSortBy] = useState<SortBy>("reclaimable");
+  const [cautionFilter, setCautionFilter] = useState<CautionFilter>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("all");
+  const [profiles, setProfiles] = useState<ScanProfile[]>(() => loadProfiles());
+  const [profileName, setProfileName] = useState("");
+  const [quarantine, setQuarantine] = useState<QuarantinedFile[]>([]);
+  const [quarantineSel, setQuarantineSel] = useState<Record<string, boolean>>({});
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [jobs, setJobs] = useState<ScheduledJob[]>([]);
+  const [jobsOpen, setJobsOpen] = useState(false);
+  const [jobInterval, setJobInterval] = useState(3600);
+  const [notifyThresholdMb, setNotifyThresholdMb] = useState(() =>
+    Number(localStorage.getItem("dup.notify.threshold_mb") || "1024"),
+  );
 
   const selectedPaths = useMemo(
     () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
@@ -116,8 +148,51 @@ export default function App() {
     return suggest.groups.reduce((n, g) => n + g.delete_candidates.length, 0);
   }, [suggest]);
 
+  const visibleGroups = useMemo(() => {
+    if (!suggest) return [];
+    return filterSortGroups(suggest.groups, sortBy, cautionFilter, viewMode);
+  }, [suggest, sortBy, cautionFilter, viewMode]);
+
   function cautionFor(path: string, cautions: FileCaution[] | undefined): FileCaution | undefined {
     return cautions?.find((c) => c.path === path && c.level !== "none");
+  }
+
+  function maybeNotifyReclaimable(bytes: number) {
+    const threshold = (Number.isFinite(notifyThresholdMb) ? notifyThresholdMb : 1024) * 1e6;
+    if (bytes < threshold) return;
+    if (typeof Notification === "undefined") return;
+    const body = `About ${formatBytes(bytes)} reclaimable after this scan.`;
+    if (Notification.permission === "granted") {
+      new Notification("Dup Finder", { body });
+      return;
+    }
+    if (Notification.permission === "default") {
+      void Notification.requestPermission().then((p) => {
+        if (p === "granted") new Notification("Dup Finder", { body });
+      });
+    }
+  }
+
+  async function refreshQuarantine() {
+    if (roots.length === 0) {
+      setQuarantine([]);
+      return;
+    }
+    try {
+      const list = await client.quarantineList(roots);
+      setQuarantine(list);
+      setQuarantineSel({});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function refreshJobs() {
+    try {
+      setJobs(await client.jobsList());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   const selectedCritical = useMemo(() => {
@@ -395,30 +470,49 @@ export default function App() {
     setDeleteReport(null);
     setTrashDone(false);
     setBusy(true);
+    setScanProgress({
+      phase: "walk",
+      files_seen: 0,
+      files_hashed: 0,
+      bytes_hashed: 0,
+    });
     try {
       saveFilters(filters);
-      const res = await client.scan(
+      const jobId = await client.scanStart(
         roots,
         indexPath || undefined,
         filtersForApi(filters),
       );
-      setScanId(res.scan_id);
-      const sug = await client.suggest(res.scan_id);
+      let job = await client.scanJob(jobId);
+      while (job.status === "running") {
+        setScanProgress(job.progress);
+        await new Promise((r) => setTimeout(r, 250));
+        job = await client.scanJob(jobId);
+      }
+      setScanProgress(job.progress);
+      if (job.status === "error") {
+        throw new Error(job.error || "Scan failed");
+      }
+      if (!job.scan_id) throw new Error("Scan finished without scan_id");
+      setScanId(job.scan_id);
+      const scanResult = await client.getScan(job.scan_id);
+      const sug = await client.suggest(job.scan_id);
       setSuggest(sug);
-      // Safer default: nothing selected until the user opts in.
       setSelected({});
       setSummary({
-        scanned: res.result.files_scanned,
-        groups: res.result.groups.length,
+        scanned: scanResult.files_scanned,
+        groups: sug.groups.length,
         reclaimable: sug.total_reclaimable_bytes,
-        computed: res.stats.hashes_computed,
-        reused: res.stats.hashes_reused,
+        computed: job.stats?.hashes_computed ?? 0,
+        reused: job.stats?.hashes_reused ?? 0,
       });
+      maybeNotifyReclaimable(sug.total_reclaimable_bytes);
       setStep("results");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setScanProgress(null);
     }
   }
 
@@ -568,41 +662,179 @@ export default function App() {
 
       {error && <p className="error">{error}</p>}
 
-      {settingsOpen && !desktop && (
+      {settingsOpen && (
         <section className="panel">
-          <h2>API connection</h2>
-          <p className="meta" style={{ marginBottom: "0.75rem" }}>
-            Local-only. Token is stored in this browser; it is never logged by
-            the server.
-          </p>
-          <div className="row">
+          <h2>Settings</h2>
+          {!desktop && (
+            <>
+              <h3 className="loc-heading">API connection</h3>
+              <p className="meta" style={{ marginBottom: "0.75rem" }}>
+                Local-only. Token is stored in this browser; it is never logged by
+                the server.
+              </p>
+              <div className="row">
+                <input
+                  type="text"
+                  value={apiUrl}
+                  onChange={(e) => setApiUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:7420"
+                  aria-label="API URL"
+                />
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="Bearer token"
+                  aria-label="Token"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy}
+                  onClick={saveSettings}
+                >
+                  {busy ? "Saving…" : "Save & connect"}
+                </button>
+              </div>
+              <p className={`meta ${connected ? "ok" : ""}`} style={{ marginTop: "0.65rem" }}>
+                {connected ? "Connected" : "Not connected"}
+              </p>
+            </>
+          )}
+          <h3 className="loc-heading">Notifications</h3>
+          <label className="field-label" style={{ display: "block" }}>
+            Notify when reclaimable ≥ (MB)
             <input
-              type="text"
-              value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="http://127.0.0.1:7420"
-              aria-label="API URL"
+              type="number"
+              min={1}
+              value={notifyThresholdMb}
+              onChange={(e) => {
+                const n = Number(e.target.value) || 1024;
+                setNotifyThresholdMb(n);
+                localStorage.setItem("dup.notify.threshold_mb", String(n));
+              }}
+              aria-label="Reclaimable notify threshold MB"
             />
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Bearer token"
-              aria-label="Token"
-              autoComplete="off"
-            />
-            <button
-              type="button"
-              className="primary"
-              disabled={busy}
-              onClick={saveSettings}
-            >
-              {busy ? "Saving…" : "Save & connect"}
-            </button>
-          </div>
-          <p className={`meta ${connected ? "ok" : ""}`} style={{ marginTop: "0.65rem" }}>
-            {connected ? "Connected" : "Not connected"}
+          </label>
+          <p className="meta">
+            Local notification after a scan when reclaimable bytes meet this threshold
+            (default 1024 MB). Permission is requested once.
           </p>
+          {(desktop || connected) && (
+            <>
+              <h3 className="loc-heading">Scheduled jobs</h3>
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => {
+                  setJobsOpen((o) => !o);
+                  if (!jobsOpen) void refreshJobs();
+                }}
+                aria-expanded={jobsOpen}
+              >
+                {jobsOpen ? "Hide jobs" : "Manage scheduled scans"}
+              </button>
+              {jobsOpen && (
+                <div className="jobs-panel">
+                  <div className="row" style={{ marginTop: "0.55rem" }}>
+                    <label className="field-label">
+                      Interval (secs)
+                      <input
+                        type="number"
+                        min={60}
+                        value={jobInterval}
+                        onChange={(e) => setJobInterval(Math.max(60, Number(e.target.value) || 3600))}
+                        aria-label="Job interval seconds"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={busy || roots.length === 0}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError(null);
+                        try {
+                          await client.jobsCreate({
+                            roots,
+                            index_path: indexPath || null,
+                            filters: filtersForApi(filters),
+                            interval_secs: jobInterval,
+                            enabled: true,
+                          });
+                          await refreshJobs();
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : String(e));
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Create from current roots
+                    </button>
+                    <button type="button" className="ghost" onClick={() => void refreshJobs()}>
+                      Refresh
+                    </button>
+                  </div>
+                  {jobs.length === 0 ? (
+                    <p className="meta">No scheduled jobs yet.</p>
+                  ) : (
+                    <ul className="roots">
+                      {jobs.map((j) => (
+                        <li key={j.id}>
+                          <span className="path">
+                            {j.id.slice(0, 8)}… · every {j.interval_secs}s · {j.status}
+                            {j.last_reclaimable_bytes != null
+                              ? ` · last reclaimable ${formatBytes(j.last_reclaimable_bytes)}`
+                              : ""}
+                          </span>
+                          <div className="row" style={{ marginTop: "0.35rem" }}>
+                            <button
+                              type="button"
+                              className="ghost compact"
+                              disabled={busy}
+                              onClick={async () => {
+                                setBusy(true);
+                                try {
+                                  await client.jobsRun(j.id);
+                                  await refreshJobs();
+                                } catch (e) {
+                                  setError(e instanceof Error ? e.message : String(e));
+                                } finally {
+                                  setBusy(false);
+                                }
+                              }}
+                            >
+                              Run now
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost compact"
+                              disabled={busy}
+                              onClick={async () => {
+                                setBusy(true);
+                                try {
+                                  await client.jobsDelete(j.id);
+                                  await refreshJobs();
+                                } catch (e) {
+                                  setError(e instanceof Error ? e.message : String(e));
+                                } finally {
+                                  setBusy(false);
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </section>
       )}
 
@@ -1008,9 +1240,97 @@ export default function App() {
               />
             </div>
           )}
+          <div className="profiles-panel">
+            <h3 className="loc-heading">Saved profiles</h3>
+            <div className="row">
+              <input
+                type="text"
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                placeholder="Profile name"
+                aria-label="Profile name"
+              />
+              <button
+                type="button"
+                className="ghost"
+                disabled={!profileName.trim() || roots.length === 0}
+                onClick={() => {
+                  upsertProfile(profileName.trim(), roots, filters);
+                  setProfiles(loadProfiles());
+                  setProfileName("");
+                }}
+              >
+                Save profile
+              </button>
+            </div>
+            {profiles.length > 0 && (
+              <ul className="roots" style={{ marginTop: "0.55rem" }}>
+                {profiles.map((p) => (
+                  <li key={p.id}>
+                    <span className="path">{p.name}</span>
+                    <div className="row" style={{ marginTop: "0.35rem" }}>
+                      <button
+                        type="button"
+                        className="ghost compact"
+                        onClick={() => {
+                          setRoots(p.roots);
+                          setFilters(p.filters);
+                          saveFilters(p.filters);
+                          setMinSizeInput(formatSizeInput(p.filters.min_size));
+                          setMaxSizeInput(formatSizeInput(p.filters.max_size));
+                          setIncludeExtInput(p.filters.include_extensions.join(", "));
+                          setExcludeExtInput(p.filters.exclude_extensions.join(", "));
+                        }}
+                      >
+                        Load
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost compact"
+                        onClick={() => {
+                          deleteProfile(p.id);
+                          setProfiles(loadProfiles());
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <p className="scan-summary meta" data-tour="tour-scan-summary">
             {filterSummary(filters, roots.length)}
           </p>
+          {busy && scanProgress && (
+            <div className="progress-block" aria-live="polite">
+              <div className="progress-bar">
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      scanProgress.phase === "done"
+                        ? 100
+                        : scanProgress.files_seen === 0
+                          ? 5
+                          : Math.max(
+                              8,
+                              (scanProgress.files_hashed / Math.max(1, scanProgress.files_seen)) *
+                                100,
+                            ),
+                    )}%`,
+                  }}
+                />
+              </div>
+              <p className="meta">
+                {scanProgress.phase}: {scanProgress.files_seen} seen ·{" "}
+                {scanProgress.files_hashed} hashed · {formatBytes(scanProgress.bytes_hashed)}
+              </p>
+            </div>
+          )}
           <div className="row" style={{ marginTop: "0.65rem" }} data-tour="tour-scan">
             <button
               type="button"
@@ -1022,7 +1342,76 @@ export default function App() {
                 ? "Scanning…"
                 : `Scan ${roots.length || ""} place${roots.length === 1 ? "" : "s"}`.trim()}
             </button>
+            <button
+              type="button"
+              className="ghost"
+              disabled={busy || roots.length === 0}
+              onClick={() => {
+                setRestoreOpen((o) => !o);
+                if (!restoreOpen) void refreshQuarantine();
+              }}
+            >
+              {restoreOpen ? "Hide restore" : "Restore from trash"}
+            </button>
           </div>
+          {restoreOpen && (
+            <div className="restore-panel">
+              <h3 className="loc-heading">Quarantine (.dup-finder-trash)</h3>
+              <p className="meta">
+                Lists files under each selected place’s local quarantine folder (not OS Trash).
+              </p>
+              <button type="button" className="ghost compact" onClick={() => void refreshQuarantine()}>
+                Refresh list
+              </button>
+              {quarantine.length === 0 ? (
+                <p className="meta">Nothing quarantined under selected places.</p>
+              ) : (
+                <ul className="roots">
+                  {quarantine.map((q) => (
+                    <li key={q.path}>
+                      <label className="candidate">
+                        <input
+                          type="checkbox"
+                          checked={!!quarantineSel[q.path]}
+                          onChange={(e) =>
+                            setQuarantineSel((s) => ({ ...s, [q.path]: e.target.checked }))
+                          }
+                        />
+                        <span>
+                          <span className="path">{q.name}</span>
+                          <span className="meta">
+                            {formatBytes(q.size)} · {q.original_parent}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                type="button"
+                className="primary"
+                disabled={busy || !Object.values(quarantineSel).some(Boolean)}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    for (const [path, on] of Object.entries(quarantineSel)) {
+                      if (!on) continue;
+                      await client.quarantineRestore(path, roots);
+                    }
+                    await refreshQuarantine();
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Restore selected
+              </button>
+            </div>
+          )}
         </section>
       )}
 
@@ -1060,6 +1449,28 @@ export default function App() {
               <button
                 type="button"
                 className="ghost"
+                disabled={!summary}
+                onClick={() =>
+                  summary &&
+                  exportSuggestJson(suggest, {
+                    scanned: summary.scanned,
+                    groups: summary.groups,
+                    reclaimable: summary.reclaimable,
+                  })
+                }
+              >
+                Export JSON
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => exportSuggestCsv(suggest)}
+              >
+                Export CSV
+              </button>
+              <button
+                type="button"
+                className="ghost"
                 disabled={candidateCount === 0}
                 onClick={selectAllReclaimable}
               >
@@ -1075,10 +1486,65 @@ export default function App() {
               </button>
             </div>
           </div>
+          <div className="review-controls" role="group" aria-label="Review filters">
+            <label className="field-label">
+              Sort
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortBy)}
+                aria-label="Sort groups"
+              >
+                <option value="reclaimable">Reclaimable size</option>
+                <option value="size">File size</option>
+                <option value="path">Path</option>
+              </select>
+            </label>
+            <div className="chip-row" role="group" aria-label="Caution filter">
+              {(
+                [
+                  ["all", "All"],
+                  ["caution", "Has caution"],
+                  ["critical", "Critical only"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`chip${cautionFilter === id ? " chip-on" : ""}`}
+                  aria-pressed={cautionFilter === id}
+                  onClick={() => setCautionFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="chip-row" role="group" aria-label="View mode">
+              {(
+                [
+                  ["all", "All groups"],
+                  ["same-folder", "Same folder"],
+                  ["cross-folder", "Cross folder"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`chip${viewMode === id ? " chip-on" : ""}`}
+                  aria-pressed={viewMode === id}
+                  onClick={() => setViewMode(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           {suggest.groups.length === 0 && (
             <p className="meta">No duplicate groups in these roots.</p>
           )}
-          {suggest.groups.map((g) => {
+          {suggest.groups.length > 0 && visibleGroups.length === 0 && (
+            <p className="meta">No groups match the current filters.</p>
+          )}
+          {visibleGroups.map((g) => {
             const groupCritical = (g.cautions || []).some((c) => c.level === "critical");
             return (
             <div className="group" key={g.hash}>
@@ -1105,6 +1571,7 @@ export default function App() {
                 </button>
               </div>
               <div className="keep-row">
+                <Thumb path={g.keep.path} mime={g.keep.mime} />
                 <div className="path">
                   {g.keep.path}
                   <span className="badge">keep</span>
@@ -1126,6 +1593,7 @@ export default function App() {
                 const caution = cautionFor(c.path, g.cautions);
                 return (
                 <div key={c.path} className="candidate-row">
+                  <Thumb path={c.path} mime={c.mime} />
                   <label className="candidate">
                     <input
                       type="checkbox"

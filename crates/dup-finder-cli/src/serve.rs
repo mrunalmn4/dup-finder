@@ -3,11 +3,17 @@ use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use axum::body::Body;
+use axum::extract::Query;
+use axum::response::Response;
 use dup_finder_app::{
-    AppSession, CreateJobRequest, DeleteRequestDto, JobStore, ScanRequest, ScanResponse,
-    ScheduledJob,
+    AppSession, CreateJobRequest, DeleteRequestDto, JobStore, ScanJobState, ScanRequest,
+    ScanResponse, ScheduledJob,
 };
-use dup_finder_engine::{DeleteReport, ScanResult, SuggestReport, SuggestedLocation, list_suggested_locations};
+use dup_finder_engine::{
+    list_suggested_locations, DeleteReport, QuarantinedFile, ScanResult, SuggestReport,
+    SuggestedLocation,
+};
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -131,6 +137,96 @@ async fn scan(
     state.session.scan(body).map(Json).map_err(map_err)
 }
 
+#[derive(serde::Serialize)]
+struct StartJobResponse {
+    job_id: String,
+}
+
+async fn scan_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ScanRequest>,
+) -> Result<Json<StartJobResponse>, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    let job_id = state.session.scan_start(body).map_err(map_err)?;
+    Ok(Json(StartJobResponse { job_id }))
+}
+
+async fn scan_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(job_id): Path<String>,
+) -> Result<Json<ScanJobState>, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    state.session.scan_job(&job_id).map(Json).map_err(map_err)
+}
+
+#[derive(Deserialize)]
+struct RootsQuery {
+    roots: String,
+}
+
+async fn quarantine_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RootsQuery>,
+) -> Result<Json<Vec<QuarantinedFile>>, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    let roots: Vec<PathBuf> = q
+        .roots
+        .split('\n')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    state
+        .session
+        .quarantine_list(&roots)
+        .map(Json)
+        .map_err(map_err)
+}
+
+#[derive(Deserialize)]
+struct RestoreBody {
+    path: PathBuf,
+    roots: Vec<PathBuf>,
+}
+
+async fn quarantine_restore(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RestoreBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    let dest = state
+        .session
+        .quarantine_restore(body.path, body.roots)
+        .map_err(map_err)?;
+    Ok(Json(serde_json::json!({ "path": dest })))
+}
+
+#[derive(Deserialize)]
+struct PreviewQuery {
+    path: String,
+}
+
+async fn preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<PreviewQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    check_auth(&headers, &state.token)?;
+    let (mime, bytes) = state
+        .session
+        .preview_image(PathBuf::from(q.path).as_path())
+        .map_err(map_err)?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, mime)
+        .body(Body::from(bytes))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
 async fn get_scan(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -252,9 +348,14 @@ pub async fn run_server(
         .route("/health", get(health))
         .route("/v1/locations", get(locations))
         .route("/v1/scan", post(scan))
+        .route("/v1/scan/start", post(scan_start))
+        .route("/v1/scan/jobs/{job_id}", get(scan_job))
         .route("/v1/scans/{scan_id}", get(get_scan))
         .route("/v1/suggest", post(suggest))
         .route("/v1/delete", post(delete_paths))
+        .route("/v1/quarantine", get(quarantine_list))
+        .route("/v1/restore", post(quarantine_restore))
+        .route("/v1/preview", get(preview))
         .route("/v1/jobs", get(list_jobs).post(create_job))
         .route("/v1/jobs/{job_id}", get(get_job).delete(delete_job))
         .route("/v1/jobs/{job_id}/run", post(run_job))

@@ -22,6 +22,11 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Layperson folder UX + onboarding/help | Choose folders / chips; first-run tour; Help guide |
 | Where + What scan filters | Engine `ScanFilters`; UI presets/categories/size; CLI flags |
 | OS trash + permanent UI | `trash` crate with `.dup-finder-trash` fallback; type DELETE for permanent |
+| Async scan + progress | Job API/Tauri/UI bar; CLI `--progress` |
+| Parallel hash | rayon within size buckets |
+| Quarantine restore | list/restore `.dup-finder-trash` via API/UI |
+| Export / profiles / review UX | JSON/CSV; localStorage profiles; sort/filter/view; image previews |
+| Jobs UI + reclaimable notify | Settings jobs panel; Notification threshold in localStorage |
 
 ## Explicitly deferred to runners / CI (next phase)
 
