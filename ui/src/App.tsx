@@ -10,14 +10,22 @@ import {
   type SuggestReport,
 } from "./api";
 
-type Step = "connect" | "roots" | "results" | "confirm";
+type Step = "roots" | "results" | "confirm";
+
+const STEPS: { id: Step; label: string }[] = [
+  { id: "roots", label: "Folders" },
+  { id: "results", label: "Review" },
+  { id: "confirm", label: "Confirm" },
+];
 
 export default function App() {
   const desktop = isTauri();
   const initial = loadConnection();
-  const [step, setStep] = useState<Step>(desktop ? "roots" : "connect");
+  const [step, setStep] = useState<Step>("roots");
+  const [settingsOpen, setSettingsOpen] = useState(!desktop && !initial.token);
   const [apiUrl, setApiUrl] = useState(initial.api);
   const [token, setToken] = useState(initial.token);
+  const [connected, setConnected] = useState(desktop);
   const [rootInput, setRootInput] = useState(
     desktop ? "" : "/app/docker/fixtures",
   );
@@ -25,16 +33,14 @@ export default function App() {
   const [indexPath, setIndexPath] = useState(
     desktop ? "" : "/app/artifacts/ui-index.sqlite",
   );
-
-  useEffect(() => {
-    if (desktop) setStep("roots");
-  }, [desktop]);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [scanId, setScanId] = useState<string | null>(null);
   const [suggest, setSuggest] = useState<SuggestReport | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteReport, setDeleteReport] = useState<DeleteReport | null>(null);
+  const [trashDone, setTrashDone] = useState(false);
   const [summary, setSummary] = useState<{
     scanned: number;
     groups: number;
@@ -53,15 +59,64 @@ export default function App() {
     return suggest.groups.map((g) => g.keep.path);
   }, [suggest]);
 
-  async function connect() {
+  const candidateCount = useMemo(() => {
+    if (!suggest) return 0;
+    return suggest.groups.reduce((n, g) => n + g.delete_candidates.length, 0);
+  }, [suggest]);
+
+  const wouldDelete = useMemo(() => {
+    if (!deleteReport) return [] as string[];
+    return deleteReport.outcomes
+      .filter((o) => o.kind === "would_delete" || o.kind === "WouldDelete")
+      .map((o) => o.path);
+  }, [deleteReport]);
+
+  const skipped = useMemo(() => {
+    if (!deleteReport) return [] as { path: string; reason: string }[];
+    return deleteReport.outcomes
+      .filter((o) => o.kind === "skipped" || o.kind === "Skipped")
+      .map((o) => ({ path: o.path, reason: o.reason }));
+  }, [deleteReport]);
+
+  useEffect(() => {
+    if (desktop) {
+      setConnected(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        saveConnection(apiUrl, token);
+        const h = await client.health();
+        if (!cancelled && h === "ok" && token) setConnected(true);
+      } catch {
+        if (!cancelled) {
+          setConnected(false);
+          setSettingsOpen(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentional: probe once on mount with saved connection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desktop]);
+
+  async function saveSettings() {
     setError(null);
     saveConnection(apiUrl, token);
     setBusy(true);
     try {
-      const h = await client.health();
-      if (h !== "ok") throw new Error("API unhealthy");
-      setStep("roots");
+      if (!desktop) {
+        const h = await client.health();
+        if (h !== "ok") throw new Error("API unhealthy");
+        if (!token.trim()) throw new Error("Bearer token required");
+      }
+      setConnected(true);
+      setSettingsOpen(false);
     } catch (e) {
+      setConnected(false);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -82,20 +137,36 @@ export default function App() {
     }
   }
 
+  function selectAllReclaimable() {
+    if (!suggest) return;
+    const sel: Record<string, boolean> = {};
+    for (const g of suggest.groups) {
+      for (const c of g.delete_candidates) sel[c.path] = true;
+    }
+    setSelected(sel);
+  }
+
+  function clearSelection() {
+    setSelected({});
+  }
+
   async function runScan() {
+    if (!desktop && !connected) {
+      setSettingsOpen(true);
+      setError("Connect to the local API in Settings first.");
+      return;
+    }
     setError(null);
     setDeleteReport(null);
+    setTrashDone(false);
     setBusy(true);
     try {
       const res = await client.scan(roots, indexPath || undefined);
       setScanId(res.scan_id);
       const sug = await client.suggest(res.scan_id);
       setSuggest(sug);
-      const sel: Record<string, boolean> = {};
-      for (const g of sug.groups) {
-        for (const c of g.delete_candidates) sel[c.path] = true;
-      }
-      setSelected(sel);
+      // Safer default: nothing selected until the user opts in.
+      setSelected({});
       setSummary({
         scanned: res.result.files_scanned,
         groups: res.result.groups.length,
@@ -114,6 +185,7 @@ export default function App() {
   async function dryRunThenConfirm() {
     if (!scanId || selectedPaths.length === 0) return;
     setError(null);
+    setTrashDone(false);
     setBusy(true);
     try {
       const report = await client.delete({
@@ -133,18 +205,19 @@ export default function App() {
   }
 
   async function trashSelected() {
-    if (!scanId || selectedPaths.length === 0) return;
+    if (!scanId || wouldDelete.length === 0) return;
     setError(null);
     setBusy(true);
     try {
       const report = await client.delete({
         scan_id: scanId,
-        paths: selectedPaths,
+        paths: wouldDelete,
         keep: keepPaths,
         mode: "trash",
         confirm: true,
       });
       setDeleteReport(report);
+      setTrashDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -152,21 +225,54 @@ export default function App() {
     }
   }
 
+  const stepIndex = STEPS.findIndex((s) => s.id === step);
+
   return (
     <div className="app">
       <header className="brand">
-        <h1>Dup Finder</h1>
+        <div className="brand-row">
+          <h1>Dup Finder</h1>
+          {!desktop && (
+            <button
+              type="button"
+              className="ghost settings-btn"
+              onClick={() => setSettingsOpen((o) => !o)}
+              aria-expanded={settingsOpen}
+            >
+              Settings
+            </button>
+          )}
+        </div>
         <p>
-          Content-true duplicates, explainable keep suggestions, and deletes that
-          only touch paths you confirm — re-verified before every remove.
+          Pick folders, review duplicates, preview exact paths, then trash only
+          what you confirm — re-verified before every remove.
         </p>
       </header>
 
+      <nav className="stepper" aria-label="Progress">
+        {STEPS.map((s, i) => {
+          const state =
+            i < stepIndex ? "done" : i === stepIndex ? "current" : "todo";
+          return (
+            <div key={s.id} className={`step step-${state}`}>
+              <span className="step-num" aria-hidden>
+                {i + 1}
+              </span>
+              <span className="step-label">{s.label}</span>
+            </div>
+          );
+        })}
+      </nav>
+
       {error && <p className="error">{error}</p>}
 
-      {step === "connect" && (
+      {settingsOpen && !desktop && (
         <section className="panel">
-          <h2>Connect to local API</h2>
+          <h2>API connection</h2>
+          <p className="meta" style={{ marginBottom: "0.75rem" }}>
+            Local-only. Token is stored in this browser; it is never logged by
+            the server.
+          </p>
           <div className="row">
             <input
               type="text"
@@ -176,22 +282,31 @@ export default function App() {
               aria-label="API URL"
             />
             <input
-              type="text"
+              type="password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               placeholder="Bearer token"
               aria-label="Token"
+              autoComplete="off"
             />
-            <button className="primary" disabled={busy} onClick={connect}>
-              {busy ? "Connecting…" : "Connect"}
+            <button
+              type="button"
+              className="primary"
+              disabled={busy}
+              onClick={saveSettings}
+            >
+              {busy ? "Saving…" : "Save & connect"}
             </button>
           </div>
+          <p className={`meta ${connected ? "ok" : ""}`} style={{ marginTop: "0.65rem" }}>
+            {connected ? "Connected" : "Not connected"}
+          </p>
         </section>
       )}
 
       {step === "roots" && (
         <section className="panel">
-          <h2>Scan roots</h2>
+          <h2>Scan folders</h2>
           <div className="row">
             <input
               type="text"
@@ -201,29 +316,21 @@ export default function App() {
               placeholder="/path/to/folder"
               aria-label="Root path"
             />
-            <button className="ghost" onClick={addRoot}>
+            <button type="button" className="ghost" onClick={addRoot}>
               Add
             </button>
             {desktop && (
-              <button className="ghost" onClick={browseRoot}>
+              <button type="button" className="ghost" onClick={browseRoot}>
                 Browse…
               </button>
             )}
-          </div>
-          <div className="row" style={{ marginTop: "0.75rem" }}>
-            <input
-              type="text"
-              value={indexPath}
-              onChange={(e) => setIndexPath(e.target.value)}
-              placeholder="Optional SQLite index path"
-              aria-label="Index path"
-            />
           </div>
           <ul className="roots">
             {roots.map((r) => (
               <li key={r}>
                 <span>{r}</span>
                 <button
+                  type="button"
                   className="ghost"
                   onClick={() => setRoots((xs) => xs.filter((x) => x !== r))}
                 >
@@ -232,8 +339,28 @@ export default function App() {
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            className="linkish"
+            onClick={() => setAdvancedOpen((o) => !o)}
+            aria-expanded={advancedOpen}
+          >
+            {advancedOpen ? "Hide advanced" : "Advanced: resumable index"}
+          </button>
+          {advancedOpen && (
+            <div className="row" style={{ marginTop: "0.65rem" }}>
+              <input
+                type="text"
+                value={indexPath}
+                onChange={(e) => setIndexPath(e.target.value)}
+                placeholder="Optional SQLite index path"
+                aria-label="Index path"
+              />
+            </div>
+          )}
           <div className="row" style={{ marginTop: "1rem" }}>
             <button
+              type="button"
               className="primary"
               disabled={busy || roots.length === 0}
               onClick={runScan}
@@ -272,14 +399,37 @@ export default function App() {
 
       {step === "results" && suggest && (
         <section className="panel">
-          <h2>Duplicates</h2>
+          <div className="panel-head">
+            <h2>Duplicates</h2>
+            <div className="row">
+              <button
+                type="button"
+                className="ghost"
+                disabled={candidateCount === 0}
+                onClick={selectAllReclaimable}
+              >
+                Select all reclaimable
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={selectedPaths.length === 0}
+                onClick={clearSelection}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          {suggest.groups.length === 0 && (
+            <p className="meta">No duplicate groups in these roots.</p>
+          )}
           {suggest.groups.map((g) => (
             <div className="group" key={g.hash}>
               <div className="meta">
                 {formatBytes(g.reclaimable_bytes)} reclaimable · keep reason{" "}
                 <code>{g.keep_reason}</code>
               </div>
-              <div style={{ marginTop: "0.55rem" }}>
+              <div className="keep-row">
                 <div className="path">
                   {g.keep.path}
                   <span className="badge">keep</span>
@@ -289,42 +439,40 @@ export default function App() {
                 </div>
               </div>
               {g.delete_candidates.map((c) => (
-                <label
-                  key={c.path}
-                  style={{
-                    display: "block",
-                    marginTop: "0.65rem",
-                    cursor: "pointer",
-                  }}
-                >
+                <label key={c.path} className="candidate">
                   <input
                     type="checkbox"
                     checked={!!selected[c.path]}
                     onChange={(e) =>
                       setSelected((s) => ({ ...s, [c.path]: e.target.checked }))
                     }
-                  />{" "}
-                  <span className="path">
-                    {c.path}
-                    <span className="badge drop">candidate</span>
+                  />
+                  <span>
+                    <span className="path">
+                      {c.path}
+                      <span className="badge drop">candidate</span>
+                    </span>
+                    <span className="meta">
+                      {c.mime} · {formatBytes(c.size)}
+                    </span>
                   </span>
-                  <div className="meta">
-                    {c.mime} · {formatBytes(c.size)}
-                  </div>
                 </label>
               ))}
             </div>
           ))}
           <div className="row" style={{ marginTop: "1rem" }}>
-            <button className="ghost" onClick={() => setStep("roots")}>
+            <button type="button" className="ghost" onClick={() => setStep("roots")}>
               Back
             </button>
             <button
+              type="button"
               className="primary"
               disabled={busy || selectedPaths.length === 0}
               onClick={dryRunThenConfirm}
             >
-              Preview delete ({selectedPaths.length})
+              {busy
+                ? "Previewing…"
+                : `Preview delete (${selectedPaths.length})`}
             </button>
           </div>
         </section>
@@ -332,20 +480,43 @@ export default function App() {
 
       {step === "confirm" && (
         <section className="panel">
-          <h2>Confirm delete</h2>
+          <h2>Confirm trash</h2>
           <p className="meta">
-            Engine will re-hash each path immediately before trash. Keep paths
-            cannot be removed.
+            Only paths that passed dry-run will be trashed. Each file is
+            re-hashed immediately before remove. Files go to a{" "}
+            <code>.dup-finder-trash</code> folder beside the original (not the
+            OS Trash yet).
           </p>
           <div className="confirm-box">
-            <strong>Will attempt to trash</strong>
-            <ul className="roots">
-              {selectedPaths.map((p) => (
-                <li key={p}>
-                  <span className="path">{p}</span>
-                </li>
-              ))}
-            </ul>
+            <strong>
+              Will trash ({wouldDelete.length})
+            </strong>
+            {wouldDelete.length === 0 ? (
+              <p className="meta">Nothing to trash — dry-run skipped all paths.</p>
+            ) : (
+              <ul className="roots">
+                {wouldDelete.map((p) => (
+                  <li key={p}>
+                    <span className="path">{p}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {skipped.length > 0 && (
+              <>
+                <strong>Skipped</strong>
+                <ul className="roots">
+                  {skipped.map((o) => (
+                    <li key={o.path + o.reason}>
+                      <span className="path">
+                        {o.path}
+                        <span className="badge"> {o.reason}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
             <strong>Protected keep</strong>
             <ul className="roots">
               {keepPaths.map((p) => (
@@ -355,15 +526,17 @@ export default function App() {
               ))}
             </ul>
           </div>
-          {deleteReport && (
+          {deleteReport && trashDone && (
             <div style={{ marginTop: "1rem" }}>
               <p className={deleteReport.refused ? "error" : "ok"}>
-                Last report: {deleteReport.outcomes.length} outcomes
-                {deleteReport.refused ? ` · refused ${deleteReport.refuse_reason}` : ""}
+                Trash finished: {deleteReport.outcomes.length} outcomes
+                {deleteReport.refused
+                  ? ` · refused ${deleteReport.refuse_reason}`
+                  : ""}
               </p>
               <ul className="roots">
                 {deleteReport.outcomes.map((o) => (
-                  <li key={o.path + o.reason}>
+                  <li key={o.path + o.reason + o.kind}>
                     <span className="path">
                       {o.kind}: {o.path} ({o.reason})
                     </span>
@@ -373,11 +546,27 @@ export default function App() {
             </div>
           )}
           <div className="row" style={{ marginTop: "1rem" }}>
-            <button className="ghost" onClick={() => setStep("results")}>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setTrashDone(false);
+                setStep("results");
+              }}
+            >
               Back
             </button>
-            <button className="danger" disabled={busy} onClick={trashSelected}>
-              {busy ? "Working…" : "Trash selected"}
+            <button
+              type="button"
+              className="danger"
+              disabled={busy || wouldDelete.length === 0 || trashDone}
+              onClick={trashSelected}
+            >
+              {busy
+                ? "Trashing…"
+                : trashDone
+                  ? "Done"
+                  : `Trash ${wouldDelete.length} file${wouldDelete.length === 1 ? "" : "s"}`}
             </button>
           </div>
         </section>

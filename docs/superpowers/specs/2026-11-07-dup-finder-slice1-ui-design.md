@@ -16,9 +16,11 @@ Let users pick roots, scan, review duplicate groups + metadata, see explainable 
 
 ## Screens (one job each)
 
-1. **Roots** — add/remove scan folders; optional index path.
-2. **Results** — groups, reclaimable bytes, metadata; suggested keep highlighted with reason.
-3. **Confirm delete** — exact path list + keep list; type/click confirm; dry-run then trash.
+1. **Folders** — add/remove scan roots; index path under Advanced. API token lives in **Settings** (not step 1).
+2. **Review** — groups + keep reason; candidates **unchecked** by default; explicit “Select all reclaimable”.
+3. **Confirm** — only dry-run `would_delete` paths; skipped + reasons; quarantine note (`.dup-finder-trash`); trash uses that list only.
+
+Progress stepper: Folders → Review → Confirm.
 
 ## Security
 
