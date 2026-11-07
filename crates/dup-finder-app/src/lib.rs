@@ -230,6 +230,7 @@ impl AppSession {
     }
 
     /// Preview bytes for an image under last scan roots (5 MiB cap).
+    /// MIME is sniffed from content (extension ignored) — spoofed `.jpg` text fails closed.
     pub fn preview_image(&self, path: &Path) -> Result<(String, Vec<u8>), String> {
         const MAX: u64 = 5 * 1024 * 1024;
         let roots = self
@@ -248,22 +249,12 @@ impl AppSession {
         if meta.len() > MAX {
             return Err("preview too large".into());
         }
-        let ext = real
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let mime = match ext.as_str() {
-            "jpg" | "jpeg" => "image/jpeg",
-            "png" => "image/png",
-            "gif" => "image/gif",
-            "webp" => "image/webp",
-            "bmp" => "image/bmp",
-            "svg" => "image/svg+xml",
-            _ => return Err("not a previewable image".into()),
-        };
+        let mime = dup_finder_engine::mime::sniff_mime(&real);
+        if !mime.starts_with("image/") {
+            return Err("not a previewable image (content is not an image)".into());
+        }
         let bytes = std::fs::read(&real).map_err(|e| e.to_string())?;
-        Ok((mime.into(), bytes))
+        Ok((mime, bytes))
     }
 }
 
@@ -367,5 +358,40 @@ mod tests {
             thread::sleep(std::time::Duration::from_millis(20));
         }
         panic!("scan job did not finish");
+    }
+
+    #[test]
+    fn preview_rejects_extension_spoof_accepts_real_png() {
+        let dir = tempdir().unwrap();
+        let spoof = dir.path().join("fake.jpg");
+        std::fs::write(&spoof, b"not a jpeg at all\n").unwrap();
+        // 1x1 PNG
+        let png_bytes = [
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d,
+            0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ];
+        let real = dir.path().join("real.png");
+        std::fs::write(&real, png_bytes).unwrap();
+
+        let app = AppSession::new();
+        app.scan(ScanRequest {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters: ScanFilters::sensible_defaults(),
+        })
+        .unwrap();
+
+        let err = app.preview_image(&spoof).unwrap_err();
+        assert!(
+            err.contains("not a previewable image"),
+            "spoofed jpg must fail: {err}"
+        );
+
+        let (mime, bytes) = app.preview_image(&real).unwrap();
+        assert_eq!(mime, "image/png");
+        assert_eq!(bytes, png_bytes);
     }
 }

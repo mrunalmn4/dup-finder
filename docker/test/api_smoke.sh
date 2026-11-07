@@ -64,4 +64,34 @@ CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" -H 'Content-Type: appli
 test "${CODE}" != "200"
 echo "restore_reject_ok"
 
-echo "API smoke passed (scan/suggest/delete/jobs/async/quarantine)"
+# Preview: spoofed .jpg (text) must fail; real PNG must succeed (paths are API-container FS)
+SPOOF=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(next(f['path'] for g in d['result']['groups'] for f in g['files'] if f['path'].endswith('photo.jpg')))" <<<"$SCAN")
+PCODE=$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" \
+  "${API}/v1/preview?path=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$SPOOF")" || true)
+test "${PCODE}" != "200"
+echo "preview_spoof_reject_ok ${PCODE}"
+
+PREVDIR="/app/artifacts/preview-smoke"
+# Write PNG on the shared volume (host path mirrors container /app)
+HOST_PREV="${ROOT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}/artifacts/preview-smoke"
+mkdir -p "$HOST_PREV"
+python3 -c "
+from pathlib import Path
+png = bytes([
+  0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+  0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,
+  0xDE,0x00,0x00,0x00,0x0C,0x49,0x44,0x41,0x54,0x08,0xD7,0x63,0xF8,0xCF,0xC0,0x00,
+  0x00,0x03,0x01,0x01,0x00,0x18,0xDD,0x8D,0xB4,0x00,0x00,0x00,0x00,0x49,0x45,0x4E,
+  0x44,0xAE,0x42,0x60,0x82,
+])
+Path('${HOST_PREV}/real.png').write_bytes(png)
+"
+curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"roots\":[\"${PREVDIR}\"]}" "${API}/v1/scan" >/dev/null
+PPATH="${PREVDIR}/real.png"
+PIMG=$(curl -sf -H "$AUTH" -o /tmp/preview.png -w '%{http_code}' \
+  "${API}/v1/preview?path=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$PPATH")")
+test "$PIMG" = "200"
+python3 -c "d=open('/tmp/preview.png','rb').read(); assert d[:8]==bytes.fromhex('89504e470d0a1a0a'); print('preview_real_png_ok', len(d))"
+
+echo "API smoke passed (scan/suggest/delete/jobs/async/quarantine/preview)"

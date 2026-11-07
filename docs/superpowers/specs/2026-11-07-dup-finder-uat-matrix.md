@@ -46,6 +46,7 @@
 | S1-11 | Trash → quarantine → restore | Roundtrip under `FORCE_QUARANTINE` | P (quarantine_roundtrip_smoke) |
 | S1-12 | UI setup modes + session resume | Mode gate; Review persists in localStorage | P (code + session_logic_test) |
 | S1-13 | CLI `--progress` | stderr progress lines + JSON | P (full_matrix) |
+| S1-14 | Preview sniff | spoof `.jpg` text rejected; real PNG 200 | P (unit + api_smoke) |
 
 ## Slice 2 — Daemon
 
