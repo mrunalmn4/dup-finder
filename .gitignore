@@ -20,6 +20,8 @@ credentials.json
 # OS / editor
 .DS_Store
 Thumbs.db
+.Trash-*/
+.info/
 .idea/
 .vscode/*
 !.vscode/extensions.json
