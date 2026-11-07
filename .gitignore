@@ -28,6 +28,7 @@ Thumbs.db
 graphify-out/.graphify_*
 graphify-out/cost.json
 graphify-out/.needs_update
+graphify-out/cache/
 **/__graphify_cache__/
 
 # Test / coverage
