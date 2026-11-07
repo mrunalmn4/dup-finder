@@ -21,6 +21,7 @@
 | S0-08 | Refuse keep candidate (T2) | No delete | P |
 | S0-09 | Hash mismatch after scan (T3) | Skip, report | P |
 | S0-10 | Permanent without confirm (T10) | Refuse | P |
+| S0-10c | Trash without confirm (T10b) | Refuse | P |
 | S0-10b | Mixed batch (T7) | Good deleted; bad skipped | P |
 | S0-11 | Scale A synthetic (1k files) | Completes; groups correct | P |
 | S0-12 | Scale B synthetic (10k) | Completes; index resume 10k reused | P |

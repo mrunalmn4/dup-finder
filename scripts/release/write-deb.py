@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import os
+import sys
 import tarfile
 from pathlib import Path
 
@@ -39,9 +40,20 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--bin", required=True, type=Path)
     p.add_argument("--out", required=True, type=Path)
-    p.add_argument("--arch", required=True)
+    p.add_argument("--arch", help="Debian arch; default: detect from ELF")
     p.add_argument("--version", default="0.1.0")
     args = p.parse_args()
+
+    detect = Path(__file__).resolve().parent / "elf-arch.py"
+    import subprocess
+
+    deb_arch = subprocess.check_output(
+        [sys.executable, str(detect), str(args.bin), "--format", "deb"],
+        text=True,
+    ).strip()
+    arch = args.arch or deb_arch
+    if arch != deb_arch:
+        raise SystemExit(f"arch mismatch: --arch={arch} but ELF is {deb_arch}")
 
     binary = args.bin.read_bytes()
     size_kb = max(1, (len(binary) + 1023) // 1024)
@@ -49,7 +61,7 @@ def main() -> int:
 Version: {args.version}
 Section: utils
 Priority: optional
-Architecture: {args.arch}
+Architecture: {arch}
 Maintainer: Dup Finder Contributors
 Installed-Size: {size_kb}
 Description: Content-duplicate finder with fail-closed safe delete

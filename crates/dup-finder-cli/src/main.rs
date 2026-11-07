@@ -51,6 +51,7 @@ enum Commands {
         keep: Vec<PathBuf>,
         #[arg(long, value_enum, default_value_t = CliDeleteMode::DryRun)]
         mode: CliDeleteMode,
+        /// Required for trash and permanent (mutating) modes
         #[arg(long)]
         confirm: bool,
     },

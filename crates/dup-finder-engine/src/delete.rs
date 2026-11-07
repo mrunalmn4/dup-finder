@@ -71,11 +71,17 @@ pub fn safe_delete<B: DeleteBackend>(
     req: &DeleteRequest,
     backend: &B,
 ) -> (DeleteReport, Vec<AuditEvent>) {
-    if matches!(req.mode, DeleteMode::Permanent) && !req.confirm {
+    // Two-phase UX: any mutating mode requires an explicit confirm (dry_run never mutates).
+    if matches!(req.mode, DeleteMode::Trash | DeleteMode::Permanent) && !req.confirm {
+        let reason = match req.mode {
+            DeleteMode::Trash => "trash_requires_confirm",
+            DeleteMode::Permanent => "permanent_requires_confirm",
+            DeleteMode::DryRun => unreachable!(),
+        };
         let report = DeleteReport {
             outcomes: vec![],
             refused: true,
-            refuse_reason: Some("permanent_requires_confirm".into()),
+            refuse_reason: Some(reason.into()),
         };
         return (report, vec![]);
     }
@@ -429,6 +435,32 @@ mod tests {
         };
         let (report, _) = safe_delete(&req, &backend);
         assert_eq!(report.outcomes[0].reason, "MISSING");
+    }
+
+    #[test]
+    fn t10b_trash_without_confirm_refused() {
+        let dir = tempdir().unwrap();
+        let f = dir.path().join("f.txt");
+        fs::write(&f, b"x").unwrap();
+        let rec = record_for(&f);
+        let backend = QuarantineBackend {
+            dir: dir.path().join("q"),
+        };
+        let req = DeleteRequest {
+            roots: vec![dir.path().canonicalize().unwrap()],
+            records: vec![rec.clone()],
+            delete_paths: vec![rec.path.clone()],
+            keep_paths: vec![],
+            mode: DeleteMode::Trash,
+            confirm: false,
+        };
+        let (report, _) = safe_delete(&req, &backend);
+        assert!(report.refused);
+        assert_eq!(
+            report.refuse_reason.as_deref(),
+            Some("trash_requires_confirm")
+        );
+        assert!(f.exists());
     }
 
     #[test]

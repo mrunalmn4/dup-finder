@@ -84,11 +84,19 @@ impl AppSession {
     pub fn delete(&self, req: DeleteRequestDto) -> Result<DeleteReport, String> {
         let mode = parse_mode(&req.mode)?;
         let scan = self.get_scan(&req.scan_id)?;
+        // Never trust client-only keep: always union with suggested keeps from this scan.
+        let suggested = suggest_from_scan(&scan);
+        let mut keep_paths = req.keep;
+        for g in &suggested.groups {
+            keep_paths.push(g.keep.path.clone());
+        }
+        keep_paths.sort();
+        keep_paths.dedup();
         let engine_req = DeleteRequest {
             roots: scan.roots.clone(),
             records: scan.records.clone(),
             delete_paths: req.paths,
-            keep_paths: req.keep,
+            keep_paths,
             mode,
             confirm: req.confirm,
         };
@@ -127,13 +135,14 @@ mod tests {
         assert!(!scan.result.groups.is_empty());
         let sug = app.suggest(&scan.scan_id).unwrap();
         assert!(!sug.groups.is_empty());
-        let drop = &sug.groups[0].delete_candidates[0].path;
+        let scan_id = scan.scan_id.clone();
+        let drop = sug.groups[0].delete_candidates[0].path.clone();
         let keep = sug.groups[0].keep.path.clone();
         let report = app
             .delete(DeleteRequestDto {
-                scan_id: scan.scan_id,
+                scan_id: scan_id.clone(),
                 paths: vec![drop.clone()],
-                keep: vec![keep],
+                keep: vec![keep.clone()],
                 mode: "dry_run".into(),
                 confirm: false,
             })
@@ -142,6 +151,34 @@ mod tests {
             report.outcomes[0].kind,
             dup_finder_engine::DeleteOutcomeKind::WouldDelete
         );
+
+        // Empty client keep still protects suggested keep (server-side union).
+        let report_keep = app
+            .delete(DeleteRequestDto {
+                scan_id: scan_id.clone(),
+                paths: vec![keep.clone()],
+                keep: vec![],
+                mode: "dry_run".into(),
+                confirm: false,
+            })
+            .unwrap();
+        assert_eq!(
+            report_keep.outcomes[0].kind,
+            dup_finder_engine::DeleteOutcomeKind::Skipped
+        );
+        assert_eq!(report_keep.outcomes[0].reason, "IS_KEEP");
+
+        // Mutating trash without confirm is refused.
+        let report_trash = app
+            .delete(DeleteRequestDto {
+                scan_id,
+                paths: vec![drop],
+                keep: vec![keep],
+                mode: "trash".into(),
+                confirm: false,
+            })
+            .unwrap();
+        assert!(report_trash.refused);
         let _ = tempdir;
     }
 }

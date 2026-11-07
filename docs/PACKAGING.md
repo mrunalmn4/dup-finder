@@ -24,6 +24,8 @@ Outputs: `artifacts/release/` and `artifacts/dist/`
 | AppImage / MSI / macOS | Tauri bundles on OS hosts; cosign in org CI |
 | SBOM / checksums | SHA256SUMS + NOTICE + `sbom-syft.sh`; cosign when secrets available |
 
+Package arch is detected from the ELF header (`elf-arch.py`); mismatched `--arch` fails closed.
+
 ## CI
 
 `.github/workflows/ci.yml` — fixtures, rust tests, UI build; release smoke on main.

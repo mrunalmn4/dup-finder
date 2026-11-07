@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
-# Build a simple .rpm from a Linux release binary using Docker + rpmbuild.
-# Override: BIN=... RPM_ARCH=aarch64|x86_64 PLATFORM=linux/arm64|linux/amd64
+# Build a .rpm from a Linux release binary using Docker + rpmbuild.
+# Arch comes from the ELF header. Override BIN=...; PLATFORM follows ELF.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${ROOT}/artifacts/release"
-HOST_ARCH="$(uname -m)"
-case "${HOST_ARCH}" in
-  aarch64|arm64) DEFAULT_ARCH=aarch64; DEFAULT_BIN_SUFFIX=arm64; DEFAULT_PLATFORM=linux/arm64 ;;
-  x86_64|amd64) DEFAULT_ARCH=x86_64; DEFAULT_BIN_SUFFIX=x86_64; DEFAULT_PLATFORM=linux/amd64 ;;
-  *) DEFAULT_ARCH="${HOST_ARCH}"; DEFAULT_BIN_SUFFIX="${HOST_ARCH}"; DEFAULT_PLATFORM="linux/${HOST_ARCH}" ;;
-esac
-RPM_ARCH="${RPM_ARCH:-${DEFAULT_ARCH}}"
-BIN_SUFFIX="${BIN_SUFFIX:-${DEFAULT_BIN_SUFFIX}}"
-PLATFORM="${PLATFORM:-${DEFAULT_PLATFORM}}"
-BIN="${BIN:-${OUT}/dup-finder-linux-${BIN_SUFFIX}}"
-if [[ ! -x "${BIN}" ]]; then
-  echo "missing ${BIN}; run build-linux-docker.sh first" >&2
+
+BIN="${BIN:-}"
+if [[ -z "${BIN}" ]]; then
+  CAND="${OUT}/dup-finder-linux-$(uname -m)"
+  if [[ -x "${CAND}" ]]; then
+    BIN="${CAND}"
+  else
+    BIN="$(ls -1 "${OUT}"/dup-finder-linux-* 2>/dev/null | head -1 || true)"
+  fi
+fi
+if [[ -z "${BIN}" || ! -x "${BIN}" ]]; then
+  echo "missing release binary under ${OUT}; run build-linux-docker.sh first" >&2
   exit 1
 fi
+
+RPM_ARCH="$(python3 "${ROOT}/scripts/release/elf-arch.py" "${BIN}" --format rpm)"
+case "${RPM_ARCH}" in
+  aarch64) PLATFORM="${PLATFORM:-linux/arm64}" ;;
+  x86_64) PLATFORM="${PLATFORM:-linux/amd64}" ;;
+  *) PLATFORM="${PLATFORM:-linux/${RPM_ARCH}}" ;;
+esac
 
 STAGE="${OUT}/rpmbuild-${RPM_ARCH}"
 rm -rf "${STAGE}"
@@ -44,7 +51,13 @@ EOF
 
 docker run --rm --platform "${PLATFORM}" -v "${STAGE}:/root/rpmbuild" rockylinux:9 \
   bash -lc 'dnf install -y rpm-build >/dev/null && rpmbuild -bb /root/rpmbuild/SPECS/dup-finder.spec'
-cp "${STAGE}/RPMS/${RPM_ARCH}"/*.rpm "${OUT}/" 2>/dev/null || cp "${STAGE}/RPMS"/*/*.rpm "${OUT}/"
+shopt -s nullglob
+RPMS=("${STAGE}/RPMS/${RPM_ARCH}"/*.rpm)
+if [[ ${#RPMS[@]} -eq 0 ]]; then
+  echo "rpmbuild produced no packages under RPMS/${RPM_ARCH}" >&2
+  exit 1
+fi
+cp "${RPMS[@]}" "${OUT}/"
 rm -rf "${STAGE}"
 echo "RPM packages in ${OUT}:"
 ls -la "${OUT}"/*.rpm

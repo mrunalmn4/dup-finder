@@ -14,7 +14,8 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Mobile full-disk scan out of v1 | Revisit as limited client later |
 | 2026-11-07 | “ponylatil” unresolved | Using personal/agent stores + graphify for memory |
 | 2026-11-07 | Slice 0 engine in Rust via Docker | No host rustc; `docker compose run --rm rust-test` |
-| 2026-11-07 | Trash backend v1 | Quarantine dir `.dup-finder-trash` / test quarantine; OS trash later with GUI |
+| 2026-11-07 | Trash backend v1 | Quarantine dir `.dup-finder-trash` (not OS Trash/Recycle yet); mutating modes need `--confirm` / `confirm:true` |
+| 2026-11-07 | API keep set | Server unions client `keep` with `suggest_from_scan` keeps — never trust empty client keep |
 | 2026-11-07 | Suggest heuristic | newest_mtime → shortest_path → lexicographic; never auto-delete |
 | 2026-11-07 | Resumable index | SQLite (`--index`); skip DB/WAL/trash dirs in walk; invalidate on size/mtime/inode change |
 | 2026-11-07 | Scale C smoke | 100k files + resume (not multi-million full hash in CI); proves cardinality + cache |

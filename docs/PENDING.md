@@ -27,7 +27,7 @@
 | Cosign / sigstore (P-06) | Signing secrets in CI |
 | Git remote + release tag upload | `origin` + release workflow |
 | Branch protection + required checks | Repo admin |
-| OS trash (vs quarantine dir) | Product follow-on with GUI |
+| OS trash (vs `.dup-finder-trash` quarantine) | Documented as quarantine today; real Trash/Recycle with GUI |
 
 ## Org / compliance (not code)
 

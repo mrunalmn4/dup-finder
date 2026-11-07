@@ -1,5 +1,6 @@
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use dup_finder_app::{
@@ -12,7 +13,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 #[derive(Clone)]
 struct AppState {
@@ -30,18 +31,58 @@ fn unauthorized() -> (StatusCode, String) {
     (StatusCode::UNAUTHORIZED, "unauthorized".into())
 }
 
+fn timing_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 fn check_auth(headers: &HeaderMap, token: &str) -> Result<(), (StatusCode, String)> {
-    let Some(val) = headers.get(axum::http::header::AUTHORIZATION) else {
+    let Some(val) = headers.get(AUTHORIZATION) else {
         return Err(unauthorized());
     };
     let Ok(s) = val.to_str() else {
         return Err(unauthorized());
     };
     let expected = format!("Bearer {token}");
-    if s != expected {
+    if !timing_eq(s, &expected) {
         return Err(unauthorized());
     }
     Ok(())
+}
+
+fn cors_layer() -> CorsLayer {
+    // Browser UI on Vite; Tauri uses IPC (no CORS). Extra origins via DUP_FINDER_CORS_ORIGINS
+    // (comma-separated) when non-loopback Docker UAT needs them.
+    let mut origins: Vec<HeaderValue> = [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+    ]
+    .into_iter()
+    .map(|o| HeaderValue::from_static(o))
+    .collect();
+    if let Ok(extra) = std::env::var("DUP_FINDER_CORS_ORIGINS") {
+        for part in extra.split(',') {
+            let t = part.trim();
+            if t.is_empty() {
+                continue;
+            }
+            if let Ok(hv) = HeaderValue::from_str(t) {
+                origins.push(hv);
+            }
+        }
+    }
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
 }
 
 /// Fail closed: non-loopback binds require an explicit escape hatch (Docker UAT only).
@@ -199,10 +240,6 @@ pub async fn run_server(
     };
     spawn_scheduler(state.clone());
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/scan", post(scan))
@@ -212,7 +249,7 @@ pub async fn run_server(
         .route("/v1/jobs", get(list_jobs).post(create_job))
         .route("/v1/jobs/{job_id}", get(get_job).delete(delete_job))
         .route("/v1/jobs/{job_id}/run", post(run_job))
-        .layer(cors)
+        .layer(cors_layer())
         .with_state(state);
 
     let addr: SocketAddr = format!("{host}:{port}")
@@ -221,7 +258,7 @@ pub async fn run_server(
     ensure_bind_allowed(addr)?;
     eprintln!("dup-finder serve listening on http://{addr}");
     eprintln!("state db: {}", state_db.display());
-    eprintln!("Authorization: Bearer {token}");
+    eprintln!("auth: Bearer token configured (value not logged)");
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| e.to_string())?;
