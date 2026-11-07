@@ -1,0 +1,30 @@
+---
+description: Hard gates for any code that deletes or suggests deleting user files
+globs: "**/*delete*","**/trash*","**/fs_ops*","**/cli/**","**/engine/**"
+alwaysApply: true
+---
+
+# Delete safety (user data)
+
+Deleting user files is irreversible risk. Treat every delete path as safety-critical.
+
+## Must hold
+
+1. **Select-only** — remove only paths in the explicit user-confirmed delete set. Never “delete the other duplicates in the group” unless each path was selected.
+2. **Never delete keep-candidates** — keep set and delete set must be disjoint; assert before acting.
+3. **TOCTOU re-verify** — immediately before each remove, re-check canonical real path + size + content hash (and device/inode when available) against the scan record. Any mismatch → **skip**, log failure, continue others.
+4. **Path allowlist** — resolved path must stay under an approved scan root; reject symlink retargets and `..` escapes.
+5. **Two-phase UX** — dry-run/preview of exact paths, then explicit confirm, then per-file results (deleted / skipped / failed). No silent bulk success.
+6. **Trash default** — OS trash/recycle; permanent delete only behind a separate confirmation.
+7. **Fail closed** — on any doubt, do not delete.
+8. **Audit** — every attempt (success/skip/fail) recorded without file contents.
+
+## Tests required before shipping delete
+
+- Hash mismatch after scan → skip
+- Symlink swapped to another file → skip
+- Keep-candidate in delete set → reject entire batch or that entry
+- Path outside scan root → reject
+- Partial failures leave a clear report; remaining selected files still processed safely
+
+Do not mark a delete-related slice done until these UAT cases are green.

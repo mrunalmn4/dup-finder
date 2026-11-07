@@ -1,0 +1,12 @@
+---
+description: Dup Finder stack, slice order, and quality bar
+alwaysApply: true
+---
+
+# Dup Finder core
+
+- Stack: Rust engine; CLI then Tauri+React GUI then daemon; BLAKE3 content identity; MIME sniff ignores extension.
+- Delivery: portable binary + OS packages + Docker; Docker is also the primary test matrix on Mac.
+- Scale: design for multi-TB; prove A → B → C in benchmarks before claiming done.
+- Quality: performance + security/compliance + UAT before advancing slices.
+- Prefer graphify when `graphify-out/graph.json` exists; keep diffs minimal; no AI attribution in git.

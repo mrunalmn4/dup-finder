@@ -1,0 +1,21 @@
+# Production-ish Linux image: static-ish release binary, non-root, minimal surface.
+FROM rust:1-bookworm AS build
+WORKDIR /app
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+ENV CARGO_HTTP_TIMEOUT=600
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo build -p dup-finder-cli --release
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && useradd --system --create-home --uid 10001 dupfinder \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/target/release/dup-finder /usr/local/bin/dup-finder
+USER dupfinder
+WORKDIR /data
+EXPOSE 7420
+ENV DUP_FINDER_ALLOW_NON_LOOPBACK=1
+ENTRYPOINT ["dup-finder"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "7420", "--state", "/data/state.sqlite"]

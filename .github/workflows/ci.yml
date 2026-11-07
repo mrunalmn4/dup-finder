@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fixture check
+        run: docker compose run --rm fixtures
+      - name: Rust tests
+        run: docker compose run --rm rust-test
+      - name: UI build
+        run: docker compose run --rm ui bash -lc "npm install && npm run build"
+
+  release-smoke:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release binary + checksums
+        run: bash scripts/release/build-linux-docker.sh
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dup-finder-linux
+          path: artifacts/release/

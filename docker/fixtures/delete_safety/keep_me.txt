@@ -1,0 +1,1 @@
+Dup Finder fixture body v1 — identical content for hash tests.

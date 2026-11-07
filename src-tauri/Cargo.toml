@@ -1,0 +1,28 @@
+[package]
+name = "dup-finder-desktop"
+version = "0.1.0"
+description = "Dup Finder desktop shell (Tauri)"
+authors = ["Dup Finder Contributors"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "dup_finder_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+dup-finder-app = { path = "../crates/dup-finder-app" }
+dup-finder-engine = { path = "../crates/dup-finder-engine" }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true

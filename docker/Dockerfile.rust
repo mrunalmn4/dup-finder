@@ -1,0 +1,7 @@
+FROM rust:1-bookworm
+WORKDIR /app
+# Dependency cache layer: copy manifests first when possible; for simplicity copy all.
+COPY . .
+RUN cargo test -p dup-finder-engine --tests --no-run \
+  && cargo build -p dup-finder-cli --release
+CMD ["cargo", "test", "--workspace"]

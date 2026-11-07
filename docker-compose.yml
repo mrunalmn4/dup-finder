@@ -1,0 +1,73 @@
+services:
+  fixtures:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.test
+    volumes:
+      - ./docker/fixtures:/fixtures:ro
+      - ./docker/test:/test:ro
+    command: ["python3", "/test/verify_fixtures.py"]
+
+  rust-test:
+    image: rust:1-bookworm
+    working_dir: /app
+    environment:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_HTTP_TIMEOUT: "600"
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/target
+    command: ["cargo", "test", "--workspace"]
+
+  api:
+    image: rust:1-bookworm
+    working_dir: /app
+    environment:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_HTTP_TIMEOUT: "600"
+      DUP_FINDER_ALLOW_NON_LOOPBACK: "1"
+      DUP_FINDER_TOKEN: "dev-token-change-me"
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/target
+    ports:
+      - "7420:7420"
+    command:
+      [
+        "cargo",
+        "run",
+        "-p",
+        "dup-finder-cli",
+        "--",
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "7420",
+        "--token",
+        "dev-token-change-me",
+        "--state",
+        "/app/artifacts/daemon-state.sqlite",
+      ]
+
+  ui:
+    image: node:22-bookworm
+    working_dir: /ui
+    volumes:
+      - ./ui:/ui
+      - ui-node-modules:/ui/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - npm_config_cache=/ui/.npm
+    command: ["bash", "-lc", "npm install && npm run dev -- --host 0.0.0.0 --port 5173"]
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:
+  ui-node-modules:

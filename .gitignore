@@ -1,0 +1,42 @@
+# Build / deps
+/target/
+**/target/
+src-tauri/target/
+**/node_modules/
+ui/.npm/
+ui/dist/
+/dist/
+/ui/dist/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Graphify sidecars / caches (keep published outputs if desired)
+graphify-out/.graphify_*
+graphify-out/cost.json
+graphify-out/.needs_update
+**/__graphify_cache__/
+
+# Test / coverage
+coverage/
+*.lcov
+/tmp/
+/docker/fixtures/generated/
+
+# Release / local artifacts
+/artifacts/
+!/artifacts/.gitkeep
+*.AppImage

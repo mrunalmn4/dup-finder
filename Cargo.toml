@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dup-finder-engine",
+    "crates/dup-finder-app",
+    "crates/dup-finder-cli",
+]
+default-members = [
+    "crates/dup-finder-engine",
+    "crates/dup-finder-app",
+    "crates/dup-finder-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Dup Finder Contributors"]
+
+[workspace.dependencies]
+blake3 = "1.5"
+clap = { version = "4.5", features = ["derive"] }
+infer = "0.19"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+walkdir = "2.5"
+tempfile = "3.14"
+rusqlite = { version = "0.32", features = ["bundled"] }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tower-http = { version = "0.6", features = ["cors"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+dup-finder-engine = { path = "crates/dup-finder-engine" }
+dup-finder-app = { path = "crates/dup-finder-app" }

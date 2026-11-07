@@ -1,0 +1,15 @@
+---
+description: Use graphify when graphify-out/graph.json exists or for architecture questions
+alwaysApply: false
+---
+
+# Graphify (when available)
+
+Only when `graphify-out/graph.json` exists, or the user asks to build/query a graph:
+
+1. Prefer `graphify query "<q>"`, `graphify path "A" "B"`, `graphify explain "X"` over repo-wide Grep.
+2. Use `graphify-out/wiki/index.md` if present for navigation.
+3. After substantial code edits: `graphify update .` (AST-only, no LLM cost).
+4. First build: `/graphify .` or ask before a full build if the corpus is large.
+
+Do not force graphify before every Read when no graph exists yet.
