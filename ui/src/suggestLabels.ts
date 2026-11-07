@@ -29,6 +29,8 @@ export function cautionReasonLabel(code: string): string {
       return "Library folder — may affect apps or the system";
     case "credential_or_key_material":
       return "Looks like keys/credentials — do not trash casually";
+    case "windows_appdata":
+      return "Windows AppData — may break installed apps";
     default:
       return `Sensitive path (${code})`;
   }

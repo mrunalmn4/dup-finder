@@ -6,17 +6,30 @@
 |----------|---------|
 | Single file / many files under roots | Yes — content BLAKE3 groups |
 | One folder / many folders | Yes — pass multiple roots |
-| Multiple partitions / volumes / drives | Yes — **if you add each as an explicit root** (e.g. `/Volumes/Backup`, `D:\Photos`) |
+| Multiple partitions / volumes / drives | Yes — **add each as an explicit root** |
 | HDD / SSD / NVMe / SD / USB | Yes — same code path; media speed affects wall time only |
 | Multi-TB trees | Designed for: streaming walk, size→partial→full hash, SQLite resume index |
 | Proven in CI | Scale A 1k, B 10k (dup pairs hashed), C 100k same-size resume smoke |
 
+## How roots work on each OS (not “auto mounts”)
+
+Dup Finder **never invents disks**. You pass roots; the walk stays under those paths.
+
+| OS | How you select storage | Examples |
+|----|------------------------|----------|
+| **macOS / Linux** | Folder paths / mount points | `/Users/me/Pictures`, `/Volumes/Backup`, `/mnt/usb` |
+| **Windows** | **Drive letters** or folder paths (not Unix-style mounts) | `C:\Users\me\Documents`, `D:\Photos`, `E:\`, `\\NAS\Share\Media` |
+
+- On Windows, `D:\` is a **drive root**, not a mount like `/Volumes/…`.
+- Extra HDDs, SSDs, SD cards, and USB sticks appear as another letter or UNC share — **add that path as a root**.
+- Scanning `C:\` whole-disk is possible only if the user explicitly selects it (strongly discouraged; system caution will fire under `\Windows`, `\Program Files`, etc.).
+
 ## What we do **not** do (v1)
 
-- Scan the whole disk unless you select those roots
-- Cross-device “smart” discovery of unlisted mounts
-- Parallel multi-disk schedulers beyond one scan job’s workers
-- Claim multi-million full-hash CI runs (C is cardinality + resume, not every-byte of multi-TB)
+- Scan the whole machine unless those roots were selected
+- Auto-discover unlisted drives/mounts
+- Parallel multi-disk schedulers beyond one scan job
+- Claim multi-million full-hash CI runs (C is cardinality + resume)
 
 ## Pipeline (performance)
 
@@ -28,4 +41,4 @@
 
 ## Delete caution
 
-Suggestions flag **critical/elevated** paths (system dirs, app bundles, `.ssh`, Program Files, etc.). UI warns before preview; engine still requires select-only + confirm + TOCTOU. Caution is advisory — it does not replace human judgment.
+Suggestions flag **critical/elevated** paths (Unix system dirs, macOS `.app` bundles, Windows `\Windows` / Program Files / AppData, `.ssh`, etc.). UI warns before preview; engine still requires select-only + confirm + TOCTOU. Caution is advisory — it does not replace human judgment.

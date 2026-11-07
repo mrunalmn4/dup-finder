@@ -34,3 +34,7 @@ Artifacts land under `src-tauri/target/release/bundle/`.
 ## Docker note
 
 Full WebView builds need OS GUI libraries. CI verifies `dup-finder-app` + engine + API instead; desktop packaging is a host/CI-image job with Tauri deps.
+
+## Windows roots
+
+On Windows, scan roots are **drive letters / folders** (`D:\Photos`), not Linux mounts. See [SCALE.md](SCALE.md).

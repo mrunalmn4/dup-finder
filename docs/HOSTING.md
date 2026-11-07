@@ -1,12 +1,22 @@
 # Git host recommendation
 
-**Use GitHub** for this repo.
+**Prefer GitHub** for this repo — especially on the **free** tier if you need Windows/macOS CI.
 
-Reasons:
-- `.github/workflows/ci.yml` already runs fixtures, Rust tests, UI build, and Linux release packaging
-- Matches existing docs and artifact upload actions
-- macOS/Windows Tauri runners are first-class on GitHub Actions
+## Free hosted runners (practical)
 
-GitLab is fine organizationally, but would mean rewriting CI to `.gitlab-ci.yml` and re-mapping runners — only worth it if your company standard is GitLab.
+| Need | GitHub Free (private) | GitLab.com Free |
+|------|------------------------|-----------------|
+| Linux CI | Strong (included Actions minutes; public repos free on standard runners) | 400 compute minutes/mo (Linux factor 1) |
+| **Windows** hosted | Yes (`windows-latest`) from included budget | Windows hosted is **beta**; limited |
+| **macOS** hosted | Yes (`macos-latest`) from included budget (expensive per minute) | Hosted macOS is **Premium/Ultimate** (not Free) |
+| Our repo today | `.github/workflows/ci.yml` already written | Would need a full `.gitlab-ci.yml` rewrite |
 
-Next step when ready: create a GitHub repo, `git remote add origin …`, push `main`, enable Actions.
+Rough GitHub Free private-repo budget is billed as included **$** of compute (then Linux/Windows/macOS burn that pot at different per-minute rates). GitLab Free is a flat **400 compute minutes**, and macOS costs ~6× Linux minutes — and Free often **cannot** use GitLab’s hosted macOS runners at all.
+
+**Verdict for Dup Finder (Linux packages now + Tauri macOS/Windows next):**  
+→ **GitHub** gives usable free/cheap **Windows + macOS** hosted runners and matches our existing workflow.  
+→ Pick **GitLab** only if your org mandates it (then use **self-hosted** runners for macOS/Windows, or pay Premium).
+
+## Next step
+
+Create a GitHub repo → `git remote add origin …` → push `main` → enable Actions.

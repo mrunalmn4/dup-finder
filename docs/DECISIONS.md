@@ -33,4 +33,5 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Suggest UX | Human keep labels; per-group Accept suggestion; Keep this instead (user_choice) |
 | 2026-11-07 | Hash pipeline live | Unique sizes skip hash; same-size partial then full BLAKE3 only on collisions |
 | 2026-11-07 | Delete path caution | Flag system/app/credential paths in suggest; UI warns on critical selection |
-| 2026-11-07 | Git host | Prefer GitHub (existing Actions); GitLab only if org-mandated |
+| 2026-11-07 | Git host | Prefer GitHub for free Windows/macOS runners; GitLab Free weak on macOS hosted |
+| 2026-11-07 | Windows storage | Roots = drive letters / UNC (`D:\`, `\\server\share`), not Unix mounts |
