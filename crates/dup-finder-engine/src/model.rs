@@ -52,12 +52,23 @@ impl ScanResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FileCaution {
+    pub path: PathBuf,
+    /// `none` | `elevated` | `critical`
+    pub level: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSuggestion {
     pub hash: String,
     pub keep: FileRecord,
     pub keep_reason: String,
     pub delete_candidates: Vec<FileRecord>,
     pub reclaimable_bytes: u64,
+    /// System/app/credential path warnings for files in this group.
+    #[serde(default)]
+    pub cautions: Vec<FileCaution>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

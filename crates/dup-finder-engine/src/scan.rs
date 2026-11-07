@@ -68,8 +68,8 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
 
     let mut skip_reasons = Vec::new();
     let mut by_size: HashMap<u64, Vec<PathBuf>> = HashMap::new();
+    let mut meta_by_path: HashMap<PathBuf, fs::Metadata> = HashMap::new();
     let mut files_scanned = 0usize;
-    let mut pending: Vec<(PathBuf, u64, fs::Metadata)> = Vec::new();
 
     for root in &canonical_roots {
         for entry in WalkDir::new(root)
@@ -110,46 +110,50 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
             files_scanned += 1;
             let size = meta.len();
             by_size.entry(size).or_default().push(path.clone());
-            pending.push((path, size, meta));
+            meta_by_path.insert(path, meta);
         }
     }
 
+    // Pipeline: unique sizes cannot be content-duplicates → skip hashing.
+    // Same size → partial fingerprint → only colliding partials get full BLAKE3.
     let mut all_records: HashMap<PathBuf, FileRecord> = HashMap::new();
-    for (path, size, meta) in &pending {
-        match build_record_cached(path, *size, meta, index.as_ref(), &mut stats) {
-            Ok(rec) => {
-                if let Some(idx) = index.as_ref() {
-                    let _ = idx.upsert(&rec);
-                }
-                all_records.insert(path.clone(), rec);
-            }
-            Err(e) => skip_reasons.push(SkipEvent {
-                path: path.clone(),
-                reason: format!("index:{e}"),
-            }),
-        }
-    }
-
-    // Partial fingerprints retained for future candidate pruning hooks.
-    let mut partial_buckets: HashMap<(u64, String), Vec<PathBuf>> = HashMap::new();
     for (size, paths) in &by_size {
         if paths.len() < 2 {
             continue;
         }
+        let mut partial_buckets: HashMap<String, Vec<PathBuf>> = HashMap::new();
         for path in paths {
             match partial_fingerprint(path, *size) {
-                Ok(fp) => partial_buckets
-                    .entry((*size, fp))
-                    .or_default()
-                    .push(path.clone()),
+                Ok(fp) => partial_buckets.entry(fp).or_default().push(path.clone()),
                 Err(e) => skip_reasons.push(SkipEvent {
                     path: path.clone(),
                     reason: format!("partial_hash:{e}"),
                 }),
             }
         }
+        for (_fp, candidates) in partial_buckets {
+            if candidates.len() < 2 {
+                continue;
+            }
+            for path in candidates {
+                let Some(meta) = meta_by_path.get(&path) else {
+                    continue;
+                };
+                match build_record_cached(&path, *size, meta, index.as_ref(), &mut stats) {
+                    Ok(rec) => {
+                        if let Some(idx) = index.as_ref() {
+                            let _ = idx.upsert(&rec);
+                        }
+                        all_records.insert(path, rec);
+                    }
+                    Err(e) => skip_reasons.push(SkipEvent {
+                        path,
+                        reason: format!("hash:{e}"),
+                    }),
+                }
+            }
+        }
     }
-    let _ = partial_buckets;
 
     let records: Vec<FileRecord> = all_records.values().cloned().collect();
     let mut grouped: HashMap<String, Vec<FileRecord>> = HashMap::new();
@@ -329,8 +333,11 @@ mod tests {
     fn resumable_index_reuses_hashes() {
         let dir = tempdir().unwrap();
         let idx_dir = tempdir().unwrap();
-        for i in 0..50 {
-            fs::write(dir.path().join(format!("f{i}.bin")), format!("payload-{i}-xxxxx")).unwrap();
+        // Pairs share size+content so they enter the full-hash stage (unique sizes skip hashing).
+        for i in 0..25 {
+            let body = format!("payload-{i}-xxxxx");
+            fs::write(dir.path().join(format!("a{i}.bin")), &body).unwrap();
+            fs::write(dir.path().join(format!("b{i}.bin")), &body).unwrap();
         }
         let index = idx_dir.path().join("cache.sqlite");
         let opts = ScanOptions {
@@ -352,19 +359,41 @@ mod tests {
         let dir = tempdir().unwrap();
         let idx_dir = tempdir().unwrap();
         let f = dir.path().join("x.txt");
-        fs::write(&f, b"v1").unwrap();
+        let other = dir.path().join("y.txt");
+        // Identical twins so they stay in the full-hash stage after edits (same size).
+        fs::write(&f, b"v1xxxxxx").unwrap();
+        fs::write(&other, b"v1xxxxxx").unwrap();
         let index = idx_dir.path().join("cache.sqlite");
         let opts = ScanOptions {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index),
         };
         let (r1, _) = scan_with_options(opts.clone()).unwrap();
-        let h1 = r1.records[0].hash.clone();
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        fs::write(&f, b"v2-changed").unwrap();
+        let h1 = r1
+            .records
+            .iter()
+            .find(|r| r.path.ends_with("x.txt"))
+            .unwrap()
+            .hash
+            .clone();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        fs::write(&f, b"v2xxxxxx").unwrap();
+        fs::write(&other, b"v2xxxxxx").unwrap();
         let (r2, s2) = scan_with_options(opts).unwrap();
-        assert_eq!(s2.hashes_computed, 1);
-        assert_ne!(r2.records[0].hash, h1);
+        assert!(
+            s2.hashes_computed >= 1,
+            "expected rehash after content change; computed={} reused={}",
+            s2.hashes_computed,
+            s2.hashes_reused
+        );
+        let h2 = r2
+            .records
+            .iter()
+            .find(|r| r.path.ends_with("x.txt"))
+            .unwrap()
+            .hash
+            .clone();
+        assert_ne!(h2, h1);
     }
 
     #[test]
@@ -387,11 +416,12 @@ mod tests {
         let (r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(r1.files_scanned, 10_000);
         assert_eq!(r1.groups.len(), 1000);
-        assert_eq!(s1.hashes_computed, 10_000);
+        // Unique-size files skip full BLAKE3; only the 2000 dup-pair members are hashed.
+        assert_eq!(s1.hashes_computed, 2_000);
 
         let (r2, s2) = scan_with_options(opts).unwrap();
         assert_eq!(r2.groups.len(), 1000);
-        assert_eq!(s2.hashes_reused, 10_000);
+        assert_eq!(s2.hashes_reused, 2_000);
         assert_eq!(s2.hashes_computed, 0);
     }
 

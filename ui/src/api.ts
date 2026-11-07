@@ -18,6 +18,12 @@ export type ScanResult = {
   records: FileRecord[];
 };
 
+export type FileCaution = {
+  path: string;
+  level: "none" | "elevated" | "critical" | string;
+  reason: string;
+};
+
 export type SuggestReport = {
   groups: {
     hash: string;
@@ -25,6 +31,7 @@ export type SuggestReport = {
     keep_reason: string;
     delete_candidates: FileRecord[];
     reclaimable_bytes: number;
+    cautions?: FileCaution[];
   }[];
   total_reclaimable_bytes: number;
 };

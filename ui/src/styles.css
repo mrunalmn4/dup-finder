@@ -332,6 +332,24 @@ button:disabled {
   color: var(--danger);
 }
 
+.badge.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge.danger {
+  background: #ffe4e6;
+  color: var(--danger);
+}
+
+.warn-box {
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-top: 1rem;
+}
+
 .path {
   font-family: var(--mono);
   font-size: 0.8rem;

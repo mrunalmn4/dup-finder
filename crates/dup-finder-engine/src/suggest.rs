@@ -1,4 +1,7 @@
-use crate::model::{DuplicateGroup, FileRecord, GroupSuggestion, ScanResult, SuggestReport};
+use crate::model::{
+    DuplicateGroup, FileCaution, FileRecord, GroupSuggestion, ScanResult, SuggestReport,
+};
+use crate::path_caution::{assess_path, CautionLevel};
 use std::cmp::Ordering;
 
 /// Prefer newest mtime, then shortest path string, then lexicographic path.
@@ -40,6 +43,23 @@ pub fn suggest_from_scan(scan: &ScanResult) -> SuggestReport {
     }
 }
 
+fn caution_note(path: &std::path::Path) -> Option<FileCaution> {
+    let c = assess_path(path);
+    match c.level {
+        CautionLevel::None => None,
+        CautionLevel::Elevated => Some(FileCaution {
+            path: path.to_path_buf(),
+            level: "elevated".into(),
+            reason: c.reason,
+        }),
+        CautionLevel::Critical => Some(FileCaution {
+            path: path.to_path_buf(),
+            level: "critical".into(),
+            reason: c.reason,
+        }),
+    }
+}
+
 fn suggest_group(group: &DuplicateGroup) -> GroupSuggestion {
     let (keep, keep_reason) = pick_keep(&group.files);
     let delete_candidates: Vec<FileRecord> = group
@@ -48,12 +68,22 @@ fn suggest_group(group: &DuplicateGroup) -> GroupSuggestion {
         .filter(|f| f.path != keep.path)
         .cloned()
         .collect();
+    let mut cautions = Vec::new();
+    if let Some(c) = caution_note(&keep.path) {
+        cautions.push(c);
+    }
+    for f in &delete_candidates {
+        if let Some(c) = caution_note(&f.path) {
+            cautions.push(c);
+        }
+    }
     GroupSuggestion {
         hash: group.hash.clone(),
         keep,
         keep_reason,
         reclaimable_bytes: group.reclaimable_bytes(),
         delete_candidates,
+        cautions,
     }
 }
 

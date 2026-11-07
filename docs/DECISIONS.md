@@ -31,3 +31,6 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Local finish gate | Linux CLI/deb/rpm/dist + API/UI smoke done; next = runners/CI + remote |
 | 2026-11-07 | UI safer flow | Folders→Review→Confirm; candidates unchecked; Settings for token; trash only dry-run would_delete |
 | 2026-11-07 | Suggest UX | Human keep labels; per-group Accept suggestion; Keep this instead (user_choice) |
+| 2026-11-07 | Hash pipeline live | Unique sizes skip hash; same-size partial then full BLAKE3 only on collisions |
+| 2026-11-07 | Delete path caution | Flag system/app/credential paths in suggest; UI warns on critical selection |
+| 2026-11-07 | Git host | Prefer GitHub (existing Actions); GitLab only if org-mandated |

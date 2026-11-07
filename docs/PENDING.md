@@ -2,6 +2,8 @@
 
 **Local Mac/Docker path is finished.** Remaining work needs runners, a git remote, or org process.
 
+See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) (**prefer GitHub**).
+
 **Rule:** do not claim a platform/channel “released” until that channel’s smoke test has passed.
 
 ## Finished locally (smoked)

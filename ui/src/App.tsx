@@ -7,10 +7,11 @@ import {
   pickFolder,
   saveConnection,
   type DeleteReport,
+  type FileCaution,
   type FileRecord,
   type SuggestReport,
 } from "./api";
-import { keepReasonLabel } from "./suggestLabels";
+import { cautionReasonLabel, keepReasonLabel } from "./suggestLabels";
 
 type Step = "roots" | "results" | "confirm";
 
@@ -65,6 +66,21 @@ export default function App() {
     if (!suggest) return 0;
     return suggest.groups.reduce((n, g) => n + g.delete_candidates.length, 0);
   }, [suggest]);
+
+  function cautionFor(path: string, cautions: FileCaution[] | undefined): FileCaution | undefined {
+    return cautions?.find((c) => c.path === path && c.level !== "none");
+  }
+
+  const selectedCritical = useMemo(() => {
+    if (!suggest) return [] as FileCaution[];
+    const out: FileCaution[] = [];
+    for (const g of suggest.groups) {
+      for (const c of g.cautions || []) {
+        if (c.level === "critical" && selected[c.path]) out.push(c);
+      }
+    }
+    return out;
+  }, [suggest, selected]);
 
   const wouldDelete = useMemo(() => {
     if (!deleteReport) return [] as string[];
@@ -466,18 +482,28 @@ export default function App() {
           {suggest.groups.length === 0 && (
             <p className="meta">No duplicate groups in these roots.</p>
           )}
-          {suggest.groups.map((g) => (
+          {suggest.groups.map((g) => {
+            const groupCritical = (g.cautions || []).some((c) => c.level === "critical");
+            return (
             <div className="group" key={g.hash}>
               <div className="group-head">
                 <div className="meta">
                   {formatBytes(g.reclaimable_bytes)} reclaimable ·{" "}
                   {keepReasonLabel(g.keep_reason)}
+                  {groupCritical && (
+                    <span className="badge warn"> contains system/app paths</span>
+                  )}
                 </div>
                 <button
                   type="button"
                   className="ghost compact"
                   disabled={g.delete_candidates.length === 0}
                   onClick={() => acceptGroupSuggestion(g.hash)}
+                  title={
+                    groupCritical
+                      ? "Suggestion includes sensitive paths — review each file"
+                      : undefined
+                  }
                 >
                   Accept suggestion
                 </button>
@@ -486,12 +512,23 @@ export default function App() {
                 <div className="path">
                   {g.keep.path}
                   <span className="badge">keep</span>
+                  {cautionFor(g.keep.path, g.cautions) && (
+                    <span className="badge warn">caution</span>
+                  )}
                 </div>
                 <div className="meta">
                   {g.keep.mime} · {formatBytes(g.keep.size)}
+                  {cautionFor(g.keep.path, g.cautions) && (
+                    <>
+                      {" "}
+                      · {cautionReasonLabel(cautionFor(g.keep.path, g.cautions)!.reason)}
+                    </>
+                  )}
                 </div>
               </div>
-              {g.delete_candidates.map((c) => (
+              {g.delete_candidates.map((c) => {
+                const caution = cautionFor(c.path, g.cautions);
+                return (
                 <div key={c.path} className="candidate-row">
                   <label className="candidate">
                     <input
@@ -508,9 +545,16 @@ export default function App() {
                       <span className="path">
                         {c.path}
                         <span className="badge drop">candidate</span>
+                        {caution?.level === "critical" && (
+                          <span className="badge danger">critical</span>
+                        )}
+                        {caution?.level === "elevated" && (
+                          <span className="badge warn">caution</span>
+                        )}
                       </span>
                       <span className="meta">
                         {c.mime} · {formatBytes(c.size)}
+                        {caution && <> · {cautionReasonLabel(caution.reason)}</>}
                       </span>
                     </span>
                   </label>
@@ -522,9 +566,30 @@ export default function App() {
                     Keep this instead
                   </button>
                 </div>
-              ))}
+              );
+              })}
             </div>
-          ))}
+          );
+          })}
+          {selectedCritical.length > 0 && (
+            <div className="warn-box" role="alert">
+              <strong>Critical paths selected</strong>
+              <p className="meta">
+                These look like system, application, or credential files. Trashing
+                them can break the OS or apps. Prefer leaving them unchecked unless
+                you are certain.
+              </p>
+              <ul className="roots">
+                {selectedCritical.map((c) => (
+                  <li key={c.path}>
+                    <span className="path">
+                      {c.path} — {cautionReasonLabel(c.reason)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="row" style={{ marginTop: "1rem" }}>
             <button type="button" className="ghost" onClick={() => setStep("roots")}>
               Back
@@ -537,7 +602,9 @@ export default function App() {
             >
               {busy
                 ? "Previewing…"
-                : `Preview delete (${selectedPaths.length})`}
+                : selectedCritical.length > 0
+                  ? `Preview delete (${selectedPaths.length}) — includes critical`
+                  : `Preview delete (${selectedPaths.length})`}
             </button>
           </div>
         </section>

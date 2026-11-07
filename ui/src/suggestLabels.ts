@@ -13,3 +13,23 @@ export function keepReasonLabel(code: string): string {
       return `Keep reason: ${code}`;
   }
 }
+
+/** Human copy for path caution reasons from the engine. */
+export function cautionReasonLabel(code: string): string {
+  switch (code) {
+    case "system_path":
+      return "System location — deleting may break the OS";
+    case "system_or_program_files":
+      return "Windows system/program files — high risk";
+    case "application_bundle":
+      return "Inside an application bundle — may break the app";
+    case "applications_folder":
+      return "Applications folder — review carefully";
+    case "library_folder":
+      return "Library folder — may affect apps or the system";
+    case "credential_or_key_material":
+      return "Looks like keys/credentials — do not trash casually";
+    default:
+      return `Sensitive path (${code})`;
+  }
+}
