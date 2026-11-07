@@ -88,6 +88,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [deleteReport, setDeleteReport] = useState<DeleteReport | null>(null);
   const [trashDone, setTrashDone] = useState(false);
+  const [permanentOpen, setPermanentOpen] = useState(false);
+  const [permanentPhrase, setPermanentPhrase] = useState("");
+  const [deleteModeDone, setDeleteModeDone] = useState<"trash" | "permanent" | null>(
+    null,
+  );
   const [summary, setSummary] = useState<{
     scanned: number;
     groups: number;
@@ -453,6 +458,36 @@ export default function App() {
       });
       setDeleteReport(report);
       setTrashDone(true);
+      setDeleteModeDone("trash");
+      setPermanentOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function permanentSelected() {
+    if (!scanId || wouldDelete.length === 0) return;
+    if (permanentPhrase.trim().toUpperCase() !== "DELETE") {
+      setError('Type DELETE to confirm permanent removal.');
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      const report = await client.delete({
+        scan_id: scanId,
+        paths: wouldDelete,
+        keep: keepPaths,
+        mode: "permanent",
+        confirm: true,
+      });
+      setDeleteReport(report);
+      setTrashDone(true);
+      setDeleteModeDone("permanent");
+      setPermanentOpen(false);
+      setPermanentPhrase("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1173,19 +1208,19 @@ export default function App() {
 
       {step === "confirm" && (
         <section className="panel">
-          <h2>Confirm trash</h2>
+          <h2>Confirm remove</h2>
           <p className="meta">
-            Only paths that passed dry-run will be trashed. Each file is
-            re-hashed immediately before remove. Files go to a{" "}
-            <code>.dup-finder-trash</code> folder beside the original (not the
-            OS Trash yet).
+            Only paths that passed dry-run will be removed. Each file is
+            re-hashed immediately before remove. Trash uses the OS Trash /
+            Recycle Bin when available; otherwise a{" "}
+            <code>.dup-finder-trash</code> folder beside the original.
           </p>
           <div className="confirm-box">
             <strong>
-              Will trash ({wouldDelete.length})
+              Will remove ({wouldDelete.length})
             </strong>
             {wouldDelete.length === 0 ? (
-              <p className="meta">Nothing to trash — dry-run skipped all paths.</p>
+              <p className="meta">Nothing to remove — dry-run skipped all paths.</p>
             ) : (
               <ul className="roots">
                 {wouldDelete.map((p) => (
@@ -1222,7 +1257,8 @@ export default function App() {
           {deleteReport && trashDone && (
             <div style={{ marginTop: "1rem" }}>
               <p className={deleteReport.refused ? "error" : "ok"}>
-                Trash finished: {deleteReport.outcomes.length} outcomes
+                {deleteModeDone === "permanent" ? "Permanent delete" : "Trash"}{" "}
+                finished: {deleteReport.outcomes.length} outcomes
                 {deleteReport.refused
                   ? ` · refused ${deleteReport.refuse_reason}`
                   : ""}
@@ -1244,6 +1280,9 @@ export default function App() {
               className="ghost"
               onClick={() => {
                 setTrashDone(false);
+                setDeleteModeDone(null);
+                setPermanentOpen(false);
+                setPermanentPhrase("");
                 setStep("results");
               }}
             >
@@ -1255,13 +1294,56 @@ export default function App() {
               disabled={busy || wouldDelete.length === 0 || trashDone}
               onClick={trashSelected}
             >
-              {busy
+              {busy && !permanentOpen
                 ? "Trashing…"
                 : trashDone
                   ? "Done"
                   : `Trash ${wouldDelete.length} file${wouldDelete.length === 1 ? "" : "s"}`}
             </button>
           </div>
+          {!trashDone && wouldDelete.length > 0 && (
+            <div className="permanent-box">
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => setPermanentOpen((o) => !o)}
+                aria-expanded={permanentOpen}
+              >
+                {permanentOpen
+                  ? "Hide permanent delete"
+                  : "Delete permanently instead…"}
+              </button>
+              {permanentOpen && (
+                <div style={{ marginTop: "0.65rem" }}>
+                  <p className="meta">
+                    Permanent delete cannot be undone. Type{" "}
+                    <strong>DELETE</strong> to enable.
+                  </p>
+                  <div className="row" style={{ marginTop: "0.45rem" }}>
+                    <input
+                      type="text"
+                      value={permanentPhrase}
+                      onChange={(e) => setPermanentPhrase(e.target.value)}
+                      placeholder="DELETE"
+                      aria-label="Type DELETE to confirm permanent"
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={
+                        busy ||
+                        permanentPhrase.trim().toUpperCase() !== "DELETE"
+                      }
+                      onClick={permanentSelected}
+                    >
+                      {busy ? "Deleting…" : "Delete permanently"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </section>
       )}
     </div>

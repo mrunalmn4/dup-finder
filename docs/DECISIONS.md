@@ -14,7 +14,8 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Mobile full-disk scan out of v1 | Revisit as limited client later |
 | 2026-11-07 | “ponylatil” unresolved | Using personal/agent stores + graphify for memory |
 | 2026-11-07 | Slice 0 engine in Rust via Docker | No host rustc; `docker compose run --rm rust-test` |
-| 2026-11-07 | Trash backend v1 | Quarantine dir `.dup-finder-trash` (not OS Trash/Recycle yet); mutating modes need `--confirm` / `confirm:true` |
+| 2026-11-07 | Trash backend | Prefer OS Trash/Recycle (`trash` crate); fall back to `.dup-finder-trash`; permanent needs typed UI confirm + `confirm:true` |
+| 2026-11-07 | CLI AppImage | Packaged from portable Linux binary via Docker (`package-appimage.sh`); GUI AppImage stays Tauri/CI |
 | 2026-11-07 | API keep set | Empty `keep` → server derives from suggest; non-empty → client override (UI swap-keep) |
 | 2026-11-07 | Suggest heuristic | newest_mtime → shortest_path → lexicographic; never auto-delete |
 | 2026-11-07 | Resumable index | SQLite (`--index`); skip DB/WAL/trash dirs in walk; invalidate on size/mtime/inode change |

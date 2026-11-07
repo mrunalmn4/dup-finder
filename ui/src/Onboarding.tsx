@@ -42,7 +42,7 @@ export default function Onboarding({ desktop, onDone, onPrepare }: Props) {
     {
       target: "tour-stepper",
       title: "Review, then confirm",
-      body: "Progress moves Folders → Review → Confirm. Nothing is removed on Review — you tick copies, preview exact paths, then confirm Trash.",
+      body: "Progress moves Folders → Review → Confirm. Nothing is removed on Review — you tick copies, preview exact paths, then Trash (OS Trash when available) or permanently delete with a second confirmation.",
     },
     {
       target: "tour-help",

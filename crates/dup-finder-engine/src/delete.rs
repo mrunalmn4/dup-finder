@@ -15,31 +15,39 @@ pub trait DeleteBackend {
     fn permanent(&self, path: &Path) -> io::Result<()>;
 }
 
-/// Production-ish backend: trash tries rename into a `.dup-finder-trash` under the file's
-/// parent volume root fallback; permanent uses `remove_file`.
-/// Full OS trash integration lands with GUI slice; algorithm gates remain identical.
+/// Production backend: prefer OS Trash/Recycle (via `trash` crate); on failure
+/// (headless Docker, missing desktop trash) fall back to `.dup-finder-trash`
+/// beside the file. Permanent uses `remove_file`.
 pub struct FsDeleteBackend;
 
 impl DeleteBackend for FsDeleteBackend {
     fn trash(&self, path: &Path) -> io::Result<()> {
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        let trash_dir = parent.join(".dup-finder-trash");
-        fs::create_dir_all(&trash_dir)?;
-        let name = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
-        let mut dest = trash_dir.join(name);
-        let mut i = 0u32;
-        while dest.exists() {
-            i += 1;
-            dest = trash_dir.join(format!("{}__{}", name.to_string_lossy(), i));
+        match trash::delete(path) {
+            Ok(()) => Ok(()),
+            Err(_os_err) => quarantine_beside(path),
         }
-        fs::rename(path, &dest)
     }
 
     fn permanent(&self, path: &Path) -> io::Result<()> {
         fs::remove_file(path)
     }
+}
+
+/// Local quarantine folder next to the file (not OS Trash).
+fn quarantine_beside(path: &Path) -> io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let trash_dir = parent.join(".dup-finder-trash");
+    fs::create_dir_all(&trash_dir)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
+    let mut dest = trash_dir.join(name);
+    let mut i = 0u32;
+    while dest.exists() {
+        i += 1;
+        dest = trash_dir.join(format!("{}__{}", name.to_string_lossy(), i));
+    }
+    fs::rename(path, &dest)
 }
 
 /// Test backend: moves into a quarantine directory (never OS trash).
@@ -580,5 +588,33 @@ mod tests {
         assert_eq!(bad_out.kind, DeleteOutcomeKind::Skipped);
         assert!(!good.exists());
         assert!(bad.exists());
+    }
+
+    #[test]
+    fn fs_backend_trash_removes_original_os_or_quarantine() {
+        let dir = tempdir().unwrap();
+        let f = dir.path().join("gone.txt");
+        fs::write(&f, b"bye-bytes").unwrap();
+        let rec = record_for(&f);
+        let req = DeleteRequest {
+            roots: vec![dir.path().canonicalize().unwrap()],
+            records: vec![rec.clone()],
+            delete_paths: vec![rec.path.clone()],
+            keep_paths: vec![],
+            mode: DeleteMode::Trash,
+            confirm: true,
+        };
+        let (report, _) = safe_delete(&req, &FsDeleteBackend);
+        assert_eq!(report.outcomes.len(), 1);
+        assert_eq!(report.outcomes[0].kind, DeleteOutcomeKind::Deleted);
+        assert!(!f.exists(), "original must be gone (OS trash or quarantine)");
+        // Headless fallback leaves a quarantine dir; OS trash may not.
+        let q = dir.path().join(".dup-finder-trash");
+        if q.is_dir() {
+            assert!(
+                q.read_dir().unwrap().next().is_some(),
+                "quarantine fallback should contain the file"
+            );
+        }
     }
 }

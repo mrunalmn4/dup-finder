@@ -8,6 +8,7 @@ bash scripts/release/build-linux-docker.sh   # native arch binary + SHA256SUMS +
 bash scripts/release/sbom-syft.sh            # SPDX + CycloneDX (syft Docker image)
 bash scripts/release/package-deb.sh          # .deb (no apt; Python ar writer)
 bash scripts/release/package-rpm.sh          # .rpm (Rocky Linux container; needs network)
+bash scripts/release/package-appimage.sh     # CLI AppImage (or AppDir.tar.gz fallback)
 bash scripts/release/make-dist.sh            # tarball under artifacts/dist/
 ```
 
@@ -21,7 +22,8 @@ Outputs: `artifacts/release/` and `artifacts/dist/`
 | Docker image | `docker build -f docker/Dockerfile.release -t dup-finder:release .` |
 | Debian | `package-deb.sh` |
 | RPM | `package-rpm.sh` |
-| AppImage / MSI / macOS | Tauri bundles on OS hosts; cosign in org CI |
+| CLI AppImage | `package-appimage.sh` from portable Linux binary (Docker appimagetool; AppDir tarball fallback) |
+| GUI AppImage / MSI / macOS | Tauri bundles on OS hosts / CI |
 | SBOM / checksums | SHA256SUMS + NOTICE + `sbom-syft.sh`; cosign when secrets available |
 
 Package arch is detected from the ELF header (`elf-arch.py`); mismatched `--arch` fails closed.

@@ -64,10 +64,12 @@ export default function HelpGuide({ desktop, onClose, onStartTour }: Props) {
           app, or keys (.ssh). Prefer leaving those unchecked.
         </p>
 
-        <h3>3. Confirm trash</h3>
+        <h3>3. Confirm remove</h3>
         <ConfirmDemo />
         <p className="help-p">
-          File contents and hashes stay on this machine. There is no cloud upload.
+          Trash uses the OS Trash / Recycle Bin when available; otherwise files
+          go to <code>.dup-finder-trash</code>. Permanent delete needs a second
+          confirmation (type DELETE). Contents and hashes never leave this machine.
         </p>
       </div>
     </div>

@@ -661,6 +661,12 @@ body {
   line-height: 1.45;
 }
 
+.permanent-box {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+
 .folder-cards {
   list-style: none;
   margin: 0 0 0.85rem;

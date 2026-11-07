@@ -82,11 +82,12 @@ export function ConfirmDemo() {
             <div className="demo-path strike delay">…/IMG_1042.jpg</div>
           </div>
           <div className="demo-btn danger pulse-slow">Confirm trash</div>
-          <div className="demo-ok fade-in">Moved to .dup-finder-trash</div>
+          <div className="demo-ok fade-in">Moved to OS Trash</div>
         </div>
       </div>
       <figcaption>
-        Preview the exact paths, then confirm. Files go to a local trash folder first.
+        Preview exact paths, then trash (OS Trash when available) or permanently
+        delete with a second confirmation.
       </figcaption>
     </figure>
   );
