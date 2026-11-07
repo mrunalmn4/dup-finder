@@ -4,7 +4,7 @@ pub use jobs::{CreateJobRequest, JobStatus, JobStore, ScheduledJob};
 
 use dup_finder_engine::{
     safe_delete, scan_with_options, suggest_from_scan, DeleteMode, DeleteReport, DeleteRequest,
-    FsDeleteBackend, ScanOptions, ScanResult, ScanStats, SuggestReport,
+    FsDeleteBackend, ScanFilters, ScanOptions, ScanResult, ScanStats, SuggestReport,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,6 +23,8 @@ pub struct ScanResponse {
 pub struct ScanRequest {
     pub roots: Vec<PathBuf>,
     pub index_path: Option<PathBuf>,
+    #[serde(default)]
+    pub filters: ScanFilters,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -53,6 +55,7 @@ impl AppSession {
         let (result, stats) = scan_with_options(ScanOptions {
             roots: req.roots,
             index_path: req.index_path,
+            filters: req.filters,
         })
         .map_err(|e| e.to_string())?;
         let scan_id = Uuid::new_v4().to_string();
@@ -133,6 +136,7 @@ mod tests {
             .scan(ScanRequest {
                 roots: vec![fixtures.clone()],
                 index_path: None,
+                filters: ScanFilters::sensible_defaults(),
             })
             .unwrap();
         assert!(!scan.result.groups.is_empty());

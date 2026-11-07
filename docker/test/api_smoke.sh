@@ -18,6 +18,12 @@ SCAN=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"roots":["/app/docker/fixtures"],"index_path":"/app/artifacts/api-smoke.sqlite"}' \
   "${API}/v1/scan")
 ID=$(python3 -c "import json,sys; print(json.load(sys.stdin)['scan_id'])" <<<"$SCAN")
+
+# Filters body (photos-only still ok on fixtures; empty categories = all)
+FILTERED=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"roots":["/app/docker/fixtures"],"filters":{"exclude_names":["node_modules"],"include_hidden":false,"categories":[],"exclude_paths":[],"include_extensions":[],"exclude_extensions":[]}}' \
+  "${API}/v1/scan")
+python3 -c "import json,sys; d=json.load(sys.stdin); assert d['scan_id']; print('filters_scan_ok')" <<<"$FILTERED"
 SUG=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' \
   -d "{\"scan_id\":\"${ID}\"}" "${API}/v1/suggest")
 python3 -c "import json,sys; d=json.load(sys.stdin); assert d['groups']; print('suggest_ok', len(d['groups']))" <<<"$SUG"

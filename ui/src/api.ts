@@ -1,3 +1,5 @@
+import type { ScanFilters } from "./scanFilters";
+
 export type FileRecord = {
   path: string;
   size: number;
@@ -159,16 +161,21 @@ export const client = {
       return [];
     }
   },
-  scan: async (roots: string[], index_path?: string) => {
+  scan: async (roots: string[], index_path?: string, filters?: ScanFilters) => {
     if (isTauri()) {
       return invokeTauri<ScanResponse>("scan", {
         roots,
         index_path: index_path ?? null,
+        filters: filters ?? null,
       });
     }
     return api<ScanResponse>("/v1/scan", {
       method: "POST",
-      body: JSON.stringify({ roots, index_path: index_path || null }),
+      body: JSON.stringify({
+        roots,
+        index_path: index_path || null,
+        filters: filters ?? undefined,
+      }),
     });
   },
   suggest: async (scan_id: string) => {

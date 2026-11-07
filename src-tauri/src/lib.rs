@@ -1,6 +1,6 @@
 use dup_finder_app::{AppSession, DeleteRequestDto, ScanRequest, ScanResponse};
 use dup_finder_engine::{
-    list_suggested_locations, DeleteReport, SuggestReport, SuggestedLocation,
+    list_suggested_locations, DeleteReport, ScanFilters, SuggestReport, SuggestedLocation,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -24,10 +24,12 @@ fn scan(
     state: State<'_, DesktopState>,
     roots: Vec<String>,
     index_path: Option<String>,
+    filters: Option<ScanFilters>,
 ) -> Result<ScanResponse, String> {
     state.session.scan(ScanRequest {
         roots: roots.into_iter().map(Into::into).collect(),
         index_path: index_path.map(Into::into),
+        filters: filters.unwrap_or_else(ScanFilters::sensible_defaults),
     })
 }
 

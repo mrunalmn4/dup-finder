@@ -1,4 +1,5 @@
 use crate::{AppSession, ScanRequest};
+use dup_finder_engine::ScanFilters;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -20,6 +21,7 @@ pub struct ScheduledJob {
     pub id: String,
     pub roots: Vec<PathBuf>,
     pub index_path: Option<PathBuf>,
+    pub filters: ScanFilters,
     pub interval_secs: u64,
     pub enabled: bool,
     pub status: JobStatus,
@@ -34,6 +36,8 @@ pub struct ScheduledJob {
 pub struct CreateJobRequest {
     pub roots: Vec<PathBuf>,
     pub index_path: Option<PathBuf>,
+    #[serde(default)]
+    pub filters: ScanFilters,
     /// Minimum seconds between automatic runs (0 = manual only).
     pub interval_secs: u64,
     #[serde(default = "default_true")]
@@ -78,6 +82,11 @@ impl JobStore {
              );",
         )
         .map_err(|e| e.to_string())?;
+        // Migration: filters_json (null → sensible defaults on read)
+        let _ = conn.execute(
+            "ALTER TABLE jobs ADD COLUMN filters_json TEXT",
+            [],
+        );
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -91,6 +100,7 @@ impl JobStore {
             id: Uuid::new_v4().to_string(),
             roots: req.roots,
             index_path: req.index_path,
+            filters: req.filters,
             interval_secs: req.interval_secs,
             enabled: req.enabled,
             status: JobStatus::Idle,
@@ -109,7 +119,8 @@ impl JobStore {
         let mut stmt = conn
             .prepare(
                 "SELECT id, roots_json, index_path, interval_secs, enabled, status,
-                        last_run_unix, last_scan_id, last_error, last_groups, last_reclaimable_bytes
+                        last_run_unix, last_scan_id, last_error, last_groups, last_reclaimable_bytes,
+                        filters_json
                  FROM jobs ORDER BY id",
             )
             .map_err(|e| e.to_string())?;
@@ -125,7 +136,8 @@ impl JobStore {
         let conn = self.conn.lock().map_err(|_| "lock poisoned".to_string())?;
         conn.query_row(
             "SELECT id, roots_json, index_path, interval_secs, enabled, status,
-                    last_run_unix, last_scan_id, last_error, last_groups, last_reclaimable_bytes
+                    last_run_unix, last_scan_id, last_error, last_groups, last_reclaimable_bytes,
+                    filters_json
              FROM jobs WHERE id = ?1",
             params![id],
             row_to_job,
@@ -146,6 +158,7 @@ impl JobStore {
 
     pub fn upsert(&self, job: &ScheduledJob) -> Result<(), String> {
         let roots_json = serde_json::to_string(&job.roots).map_err(|e| e.to_string())?;
+        let filters_json = serde_json::to_string(&job.filters).map_err(|e| e.to_string())?;
         let status = match job.status {
             JobStatus::Idle => "idle",
             JobStatus::Running => "running",
@@ -155,8 +168,9 @@ impl JobStore {
         let conn = self.conn.lock().map_err(|_| "lock poisoned".to_string())?;
         conn.execute(
             "INSERT INTO jobs(id, roots_json, index_path, interval_secs, enabled, status,
-                              last_run_unix, last_scan_id, last_error, last_groups, last_reclaimable_bytes)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                              last_run_unix, last_scan_id, last_error, last_groups, last_reclaimable_bytes,
+                              filters_json)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
              ON CONFLICT(id) DO UPDATE SET
                roots_json=excluded.roots_json,
                index_path=excluded.index_path,
@@ -167,7 +181,8 @@ impl JobStore {
                last_scan_id=excluded.last_scan_id,
                last_error=excluded.last_error,
                last_groups=excluded.last_groups,
-               last_reclaimable_bytes=excluded.last_reclaimable_bytes",
+               last_reclaimable_bytes=excluded.last_reclaimable_bytes,
+               filters_json=excluded.filters_json",
             params![
                 job.id,
                 roots_json,
@@ -182,6 +197,7 @@ impl JobStore {
                 job.last_error,
                 job.last_groups.map(|v| v as i64),
                 job.last_reclaimable_bytes.map(|v| v as i64),
+                filters_json,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -198,6 +214,7 @@ impl JobStore {
         let result = session.scan(ScanRequest {
             roots: job.roots.clone(),
             index_path: job.index_path.clone(),
+            filters: job.filters.clone(),
         });
 
         match result {
@@ -248,10 +265,16 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScheduledJob> {
         "error" => JobStatus::Error,
         _ => JobStatus::Idle,
     };
+    let filters_json: Option<String> = row.get(11)?;
+    let filters = filters_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(ScanFilters::sensible_defaults);
     Ok(ScheduledJob {
         id: row.get(0)?,
         roots,
         index_path: index.map(PathBuf::from),
+        filters,
         interval_secs: row.get::<_, i64>(3)? as u64,
         enabled: row.get::<_, i64>(4)? != 0,
         status,
@@ -282,6 +305,7 @@ mod tests {
             .create(CreateJobRequest {
                 roots: vec![fixtures],
                 index_path: None,
+                filters: ScanFilters::sensible_defaults(),
                 interval_secs: 3600,
                 enabled: true,
             })

@@ -2,8 +2,8 @@ mod serve;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use dup_finder_engine::{
-    safe_delete, scan_with_options, suggest_from_scan, DeleteMode, DeleteRequest, FsDeleteBackend,
-    ScanOptions, ScanResult,
+    safe_delete, scan_with_options, suggest_from_scan, DeleteMode, DeleteRequest, FileCategory,
+    FsDeleteBackend, ScanFilters, ScanOptions, ScanResult,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -33,6 +33,30 @@ enum Commands {
         summary: bool,
         #[arg(long, default_value_t = false)]
         quiet: bool,
+        /// Include hidden files/folders (default: off)
+        #[arg(long, default_value_t = false)]
+        hidden: bool,
+        /// Do not apply default exclude names (node_modules, .git, …)
+        #[arg(long, default_value_t = false)]
+        no_default_excludes: bool,
+        #[arg(long = "exclude-name")]
+        exclude_names: Vec<String>,
+        #[arg(long = "exclude-path")]
+        exclude_paths: Vec<PathBuf>,
+        #[arg(long)]
+        min_size: Option<u64>,
+        #[arg(long)]
+        max_size: Option<u64>,
+        #[arg(long)]
+        max_depth: Option<usize>,
+        /// Include only these extensions (repeatable), e.g. --ext jpg
+        #[arg(long = "ext")]
+        include_extensions: Vec<String>,
+        #[arg(long = "exclude-ext")]
+        exclude_extensions: Vec<String>,
+        /// Limit to categories: photos, videos, documents, audio, archives, other
+        #[arg(long = "category", value_enum)]
+        categories: Vec<CliCategory>,
     },
     /// Suggest which duplicate to keep (never deletes)
     Suggest {
@@ -87,6 +111,64 @@ impl From<CliDeleteMode> for DeleteMode {
     }
 }
 
+#[derive(Clone, Debug, ValueEnum)]
+enum CliCategory {
+    Photos,
+    Videos,
+    Documents,
+    Audio,
+    Archives,
+    Other,
+}
+
+impl From<CliCategory> for FileCategory {
+    fn from(value: CliCategory) -> Self {
+        match value {
+            CliCategory::Photos => FileCategory::Photos,
+            CliCategory::Videos => FileCategory::Videos,
+            CliCategory::Documents => FileCategory::Documents,
+            CliCategory::Audio => FileCategory::Audio,
+            CliCategory::Archives => FileCategory::Archives,
+            CliCategory::Other => FileCategory::Other,
+        }
+    }
+}
+
+fn build_scan_filters(
+    hidden: bool,
+    no_default_excludes: bool,
+    exclude_names: Vec<String>,
+    exclude_paths: Vec<PathBuf>,
+    min_size: Option<u64>,
+    max_size: Option<u64>,
+    max_depth: Option<usize>,
+    include_extensions: Vec<String>,
+    exclude_extensions: Vec<String>,
+    categories: Vec<CliCategory>,
+) -> ScanFilters {
+    let mut filters = if no_default_excludes {
+        ScanFilters::empty()
+    } else {
+        ScanFilters::sensible_defaults()
+    };
+    filters.include_hidden = hidden;
+    if !exclude_names.is_empty() {
+        if no_default_excludes {
+            filters.exclude_names = exclude_names;
+        } else {
+            filters.exclude_names.extend(exclude_names);
+        }
+    }
+    filters.exclude_paths = exclude_paths;
+    filters.min_size = min_size;
+    filters.max_size = max_size;
+    filters.max_depth = max_depth;
+    filters.include_extensions = include_extensions;
+    filters.exclude_extensions = exclude_extensions;
+    filters.categories = categories.into_iter().map(Into::into).collect();
+    filters
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
@@ -135,10 +217,33 @@ fn run() -> Result<ExitCode, String> {
             index,
             summary,
             quiet,
+            hidden,
+            no_default_excludes,
+            exclude_names,
+            exclude_paths,
+            min_size,
+            max_size,
+            max_depth,
+            include_extensions,
+            exclude_extensions,
+            categories,
         } => {
+            let filters = build_scan_filters(
+                hidden,
+                no_default_excludes,
+                exclude_names,
+                exclude_paths,
+                min_size,
+                max_size,
+                max_depth,
+                include_extensions,
+                exclude_extensions,
+                categories,
+            );
             let (result, stats) = scan_with_options(ScanOptions {
                 roots: paths,
                 index_path: index,
+                filters,
             })
             .map_err(|e| e.to_string())?;
             if summary && !quiet {

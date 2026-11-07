@@ -46,9 +46,15 @@ export default function HelpGuide({ desktop, onClose, onStartTour }: Props) {
         <FoldersDemo desktop={desktop} />
         <p className="help-p">
           Tap tiles under Drives &amp; disks or Folders — you can select several.
-          On Windows that includes D:\, E:\, and so on. On Mac, external disks
-          under /Volumes. Browse for more in the desktop app. We never scan
-          anything you did not select.
+          Use presets (Common folders, Disks only), exclude subfolders, set max
+          depth, or include hidden files. Browse for more in the desktop app.
+        </p>
+
+        <h3>What to scan</h3>
+        <p className="help-p">
+          Under “What should we look for?” toggle Photos / Videos / Documents /
+          Audio / Archives, set min/max size, and edit skip names (node_modules,
+          .git, …). Your last choices are remembered on this device.
         </p>
 
         <h3>2. Review duplicates</h3>

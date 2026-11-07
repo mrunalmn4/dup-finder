@@ -1,4 +1,5 @@
 use crate::error::EngineError;
+use crate::filters::{path_under_or_eq, ScanFilters};
 use crate::hash::{blake3_file, partial_fingerprint};
 use crate::index::ScanIndex;
 use crate::mime::sniff_mime;
@@ -9,11 +10,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub roots: Vec<PathBuf>,
     /// Optional SQLite cache for resumable / incremental hashing.
     pub index_path: Option<PathBuf>,
+    pub filters: ScanFilters,
+}
+
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            roots: Vec::new(),
+            index_path: None,
+            filters: ScanFilters::sensible_defaults(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -46,14 +58,34 @@ pub fn scan_roots(roots: &[PathBuf]) -> Result<ScanResult, EngineError> {
     scan_with_options(ScanOptions {
         roots: roots.to_vec(),
         index_path: None,
+        filters: ScanFilters::empty(),
     })
     .map(|(r, _)| r)
 }
 
 pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), EngineError> {
+    let filters = opts.filters;
     let mut canonical_roots = Vec::new();
     for r in &opts.roots {
         canonical_roots.push(realpath(r)?);
+    }
+
+    let mut exclude_prefixes = Vec::new();
+    for p in &filters.exclude_paths {
+        match realpath(p) {
+            Ok(c) => {
+                if !canonical_roots.iter().any(|root| path_under_or_eq(&c, root)) {
+                    return Err(EngineError::Message(format!(
+                        "exclude path not under a scan root: {}",
+                        p.display()
+                    )));
+                }
+                exclude_prefixes.push(c);
+            }
+            Err(_) => {
+                // Non-existent exclude is a no-op (fail open for missing paths only).
+            }
+        }
     }
 
     let index_path = opts
@@ -72,11 +104,22 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
     let mut files_scanned = 0usize;
 
     for root in &canonical_roots {
-        for entry in WalkDir::new(root)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| !should_skip_dir(e.path()))
-        {
+        let mut walker = WalkDir::new(root).follow_links(false);
+        if let Some(d) = filters.max_depth {
+            // WalkDir depth 0 = root only; user max_depth 1 = root + children.
+            walker = walker.max_depth(d);
+        }
+        for entry in walker.into_iter().filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            // Prune directories only; files get SkipEvent reasons via file_allowed.
+            if e.file_type().is_dir() {
+                !filters.should_skip_dir_entry(e.path(), &exclude_prefixes)
+            } else {
+                true
+            }
+        }) {
             let entry = match entry {
                 Ok(e) => e,
                 Err(err) => {
@@ -97,6 +140,13 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
             if is_index_sidecar(&path, index_path.as_deref()) {
                 continue;
             }
+            if exclude_prefixes.iter().any(|ex| path_under_or_eq(&path, ex)) {
+                skip_reasons.push(SkipEvent {
+                    path: path.clone(),
+                    reason: "filtered:exclude_path".into(),
+                });
+                continue;
+            }
             let meta = match fs::metadata(&path) {
                 Ok(m) => m,
                 Err(e) => {
@@ -107,8 +157,15 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
                     continue;
                 }
             };
-            files_scanned += 1;
             let size = meta.len();
+            if let Err(reason) = filters.file_allowed(&path, size) {
+                skip_reasons.push(SkipEvent {
+                    path: path.clone(),
+                    reason: reason.into(),
+                });
+                continue;
+            }
+            files_scanned += 1;
             by_size.entry(size).or_default().push(path.clone());
             meta_by_path.insert(path, meta);
         }
@@ -183,12 +240,6 @@ pub fn scan_with_options(opts: ScanOptions) -> Result<(ScanResult, ScanStats), E
     ))
 }
 
-fn should_skip_dir(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| n == ".dup-finder-trash" || n == ".dup-finder-index")
-}
-
 fn is_index_sidecar(path: &Path, index: Option<&Path>) -> bool {
     let Some(index) = index else {
         return false;
@@ -236,6 +287,7 @@ fn build_record_cached(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filters::FileCategory;
     use std::fs;
     use tempfile::tempdir;
 
@@ -343,6 +395,7 @@ mod tests {
         let opts = ScanOptions {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index.clone()),
+            filters: ScanFilters::empty(),
         };
         let (_r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(s1.hashes_computed, 50);
@@ -367,6 +420,7 @@ mod tests {
         let opts = ScanOptions {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index),
+            filters: ScanFilters::empty(),
         };
         let (r1, _) = scan_with_options(opts.clone()).unwrap();
         let h1 = r1
@@ -412,6 +466,7 @@ mod tests {
         let opts = ScanOptions {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index),
+            filters: ScanFilters::empty(),
         };
         let (r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(r1.files_scanned, 10_000);
@@ -437,6 +492,7 @@ mod tests {
         let opts = ScanOptions {
             roots: vec![dir.path().to_path_buf()],
             index_path: Some(index),
+            filters: ScanFilters::empty(),
         };
         let (r1, s1) = scan_with_options(opts.clone()).unwrap();
         assert_eq!(r1.files_scanned, 100_000);
@@ -446,5 +502,125 @@ mod tests {
         let (_r2, s2) = scan_with_options(opts).unwrap();
         assert_eq!(s2.hashes_reused, 100_000);
         assert_eq!(s2.hashes_computed, 0);
+    }
+
+    #[test]
+    fn filter_category_photos_only() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.jpg"), b"img-aaaa").unwrap();
+        fs::write(dir.path().join("b.jpg"), b"img-aaaa").unwrap();
+        fs::write(dir.path().join("c.txt"), b"img-aaaa").unwrap();
+        fs::write(dir.path().join("d.txt"), b"img-aaaa").unwrap();
+        let mut filters = ScanFilters::empty();
+        filters.categories = vec![FileCategory::Photos];
+        let (r, _) = scan_with_options(ScanOptions {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters,
+        })
+        .unwrap();
+        assert_eq!(r.files_scanned, 2);
+        assert_eq!(r.groups.len(), 1);
+        assert!(r.skip_reasons.iter().any(|s| s.reason == "filtered:category"));
+    }
+
+    #[test]
+    fn filter_min_size_skips_small() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.bin"), b"tiny").unwrap();
+        fs::write(dir.path().join("b.bin"), b"tiny").unwrap();
+        fs::write(dir.path().join("c.bin"), vec![0u8; 100]).unwrap();
+        fs::write(dir.path().join("d.bin"), vec![0u8; 100]).unwrap();
+        let mut filters = ScanFilters::empty();
+        filters.min_size = Some(50);
+        let (r, _) = scan_with_options(ScanOptions {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters,
+        })
+        .unwrap();
+        assert_eq!(r.files_scanned, 2);
+        assert!(r.skip_reasons.iter().any(|s| s.reason == "filtered:size"));
+    }
+
+    #[test]
+    fn filter_exclude_name_skips_node_modules() {
+        let dir = tempdir().unwrap();
+        let nm = dir.path().join("node_modules");
+        fs::create_dir_all(&nm).unwrap();
+        fs::write(nm.join("a.js"), b"dupxxxx").unwrap();
+        fs::write(nm.join("b.js"), b"dupxxxx").unwrap();
+        fs::write(dir.path().join("keep.js"), b"dupxxxx").unwrap();
+        fs::write(dir.path().join("keep2.js"), b"dupxxxx").unwrap();
+        let mut filters = ScanFilters::empty();
+        filters.exclude_names = vec!["node_modules".into()];
+        let (r, _) = scan_with_options(ScanOptions {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters,
+        })
+        .unwrap();
+        assert_eq!(r.files_scanned, 2);
+        assert!(!r.records.iter().any(|rec| rec.path.to_string_lossy().contains("node_modules")));
+    }
+
+    #[test]
+    fn filter_max_depth() {
+        let dir = tempdir().unwrap();
+        let deep = dir.path().join("sub");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(dir.path().join("top-a.txt"), b"samebody").unwrap();
+        fs::write(dir.path().join("top-b.txt"), b"samebody").unwrap();
+        fs::write(deep.join("deep-a.txt"), b"samebody").unwrap();
+        fs::write(deep.join("deep-b.txt"), b"samebody").unwrap();
+        let mut filters = ScanFilters::empty();
+        filters.max_depth = Some(1); // root files only (depth 0 = root dir, depth 1 = files in root)
+        let (r, _) = scan_with_options(ScanOptions {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters,
+        })
+        .unwrap();
+        assert_eq!(r.files_scanned, 2);
+        assert!(!r.records.iter().any(|rec| rec.path.to_string_lossy().contains("deep-")));
+    }
+
+    #[test]
+    fn filter_hidden_off_skips_dotfiles() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("vis-a.txt"), b"hiddenxx").unwrap();
+        fs::write(dir.path().join("vis-b.txt"), b"hiddenxx").unwrap();
+        fs::write(dir.path().join(".secret-a"), b"hiddenxx").unwrap();
+        fs::write(dir.path().join(".secret-b"), b"hiddenxx").unwrap();
+        let mut filters = ScanFilters::empty();
+        filters.include_hidden = false;
+        let (r, _) = scan_with_options(ScanOptions {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters,
+        })
+        .unwrap();
+        assert_eq!(r.files_scanned, 2);
+        assert!(r.skip_reasons.iter().any(|s| s.reason == "filtered:hidden"));
+    }
+
+    #[test]
+    fn filter_exclude_path_under_root() {
+        let dir = tempdir().unwrap();
+        let skip = dir.path().join("skipme");
+        fs::create_dir_all(&skip).unwrap();
+        fs::write(skip.join("a.txt"), b"expathxx").unwrap();
+        fs::write(skip.join("b.txt"), b"expathxx").unwrap();
+        fs::write(dir.path().join("ok-a.txt"), b"expathxx").unwrap();
+        fs::write(dir.path().join("ok-b.txt"), b"expathxx").unwrap();
+        let mut filters = ScanFilters::empty();
+        filters.exclude_paths = vec![skip];
+        let (r, _) = scan_with_options(ScanOptions {
+            roots: vec![dir.path().to_path_buf()],
+            index_path: None,
+            filters,
+        })
+        .unwrap();
+        assert_eq!(r.files_scanned, 2);
     }
 }

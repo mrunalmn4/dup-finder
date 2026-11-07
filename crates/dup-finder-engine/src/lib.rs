@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod delete;
 pub mod error;
+pub mod filters;
 pub mod hash;
 pub mod index;
 pub mod locations;
@@ -15,6 +16,7 @@ pub mod suggest;
 
 pub use delete::{safe_delete, DeleteBackend, FsDeleteBackend, QuarantineBackend};
 pub use error::EngineError;
+pub use filters::{default_exclude_names, FileCategory, ScanFilters};
 pub use index::ScanIndex;
 pub use locations::{list_suggested_locations, LocationKind, SuggestedLocation};
 pub use model::*;

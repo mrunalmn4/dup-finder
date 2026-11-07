@@ -16,6 +16,20 @@ import {
 } from "./api";
 import HelpGuide from "./HelpGuide";
 import Onboarding from "./Onboarding";
+import {
+  ALL_CATEGORIES,
+  CATEGORY_LABELS,
+  filterSummary,
+  filtersForApi,
+  formatSizeInput,
+  loadFilters,
+  parseSizeInput,
+  saveFilters,
+  sensibleFilters,
+  splitTags,
+  type FileCategory,
+  type ScanFilters,
+} from "./scanFilters";
 import { cautionReasonLabel, keepReasonLabel } from "./suggestLabels";
 
 type Step = "roots" | "results" | "confirm";
@@ -51,6 +65,22 @@ export default function App() {
     desktop ? "" : "/app/artifacts/ui-index.sqlite",
   );
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [filters, setFilters] = useState<ScanFilters>(() => loadFilters());
+  const [excludePathInput, setExcludePathInput] = useState("");
+  const [includeExtInput, setIncludeExtInput] = useState(() =>
+    loadFilters().include_extensions.join(", "),
+  );
+  const [excludeExtInput, setExcludeExtInput] = useState(() =>
+    loadFilters().exclude_extensions.join(", "),
+  );
+  const [excludeNameInput, setExcludeNameInput] = useState("");
+  const [minSizeInput, setMinSizeInput] = useState(() =>
+    formatSizeInput(loadFilters().min_size),
+  );
+  const [maxSizeInput, setMaxSizeInput] = useState(() =>
+    formatSizeInput(loadFilters().max_size),
+  );
+  const [whatOpen, setWhatOpen] = useState(true);
   const [scanId, setScanId] = useState<string | null>(null);
   const [suggest, setSuggest] = useState<SuggestReport | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -199,6 +229,69 @@ export default function App() {
     setRoots((r) => (r.includes(path) ? r.filter((x) => x !== path) : [...r, path]));
   }
 
+  function applyPreset(kind: "common" | "disks" | "demo" | "clear") {
+    if (kind === "clear") {
+      setRoots([]);
+      return;
+    }
+    if (kind === "demo") {
+      const demo =
+        locations.find((l) => l.label.includes("Sample") || l.path.includes("fixtures"))
+          ?.path ?? "/app/docker/fixtures";
+      setRoots([demo]);
+      return;
+    }
+    if (kind === "disks") {
+      setRoots(
+        locations
+          .filter((l) => l.kind === "drive" || l.kind === "volume")
+          .map((l) => l.path),
+      );
+      return;
+    }
+    // common folders: Home / Desktop / Documents / Downloads / Pictures
+    const want = new Set(["Home", "Desktop", "Documents", "Downloads", "Pictures"]);
+    setRoots(
+      locations.filter((l) => want.has(l.label)).map((l) => l.path),
+    );
+  }
+
+  function updateFilters(patch: Partial<ScanFilters>) {
+    setFilters((f) => {
+      const next = { ...f, ...patch };
+      saveFilters(next);
+      return next;
+    });
+  }
+
+  function toggleCategory(cat: FileCategory) {
+    setFilters((f) => {
+      const has = f.categories.includes(cat);
+      const categories = has
+        ? f.categories.filter((c) => c !== cat)
+        : [...f.categories, cat];
+      const next = { ...f, categories };
+      saveFilters(next);
+      return next;
+    });
+  }
+
+  function addExcludePath() {
+    const v = excludePathInput.trim();
+    if (!v || filters.exclude_paths.includes(v)) return;
+    const underRoot = roots.some(
+      (r) => v === r || v.startsWith(r.endsWith("/") || r.endsWith("\\") ? r : r + "/") ||
+        v.startsWith(r + "\\"),
+    );
+    if (roots.length > 0 && !underRoot) {
+      setError("Exclude path must be under a selected scan place.");
+      return;
+    }
+    setError(null);
+    updateFilters({ exclude_paths: [...filters.exclude_paths, v] });
+    setExcludePathInput("");
+  }
+
   const customRoots = useMemo(() => {
     const known = new Set(locations.map((l) => l.path));
     return roots.filter((r) => !known.has(r));
@@ -289,12 +382,21 @@ export default function App() {
       setError("Connect to the local API in Settings first.");
       return;
     }
+    if (filters.categories.length === 0) {
+      setError("Select at least one file type under What should we look for?");
+      return;
+    }
     setError(null);
     setDeleteReport(null);
     setTrashDone(false);
     setBusy(true);
     try {
-      const res = await client.scan(roots, indexPath || undefined);
+      saveFilters(filters);
+      const res = await client.scan(
+        roots,
+        indexPath || undefined,
+        filtersForApi(filters),
+      );
       setScanId(res.scan_id);
       const sug = await client.suggest(res.scan_id);
       setSuggest(sug);
@@ -544,6 +646,22 @@ export default function App() {
               </p>
             )}
 
+            <div className="preset-row" role="group" aria-label="Quick presets">
+              <span className="meta">Presets:</span>
+              <button type="button" className="ghost compact" onClick={() => applyPreset("common")}>
+                Common folders
+              </button>
+              <button type="button" className="ghost compact" onClick={() => applyPreset("disks")}>
+                Disks only
+              </button>
+              <button type="button" className="ghost compact" onClick={() => applyPreset("demo")}>
+                Sample demo
+              </button>
+              <button type="button" className="ghost compact" onClick={() => applyPreset("clear")}>
+                Clear
+              </button>
+            </div>
+
             <div className="row" style={{ marginTop: "0.85rem" }}>
               {desktop && (
                 <button type="button" className="primary" onClick={browseRoot}>
@@ -565,6 +683,226 @@ export default function App() {
                 : "Tiles come from the API computer (inside Docker that is the container). Your Mac/Windows drives appear in the desktop app."}
             </p>
           </div>
+
+          <div className="where-extra">
+            <h3 className="loc-heading">Where extras</h3>
+            <label className="check-line">
+              <input
+                type="checkbox"
+                checked={filters.include_hidden}
+                onChange={(e) => updateFilters({ include_hidden: e.target.checked })}
+              />
+              Include hidden files and folders
+            </label>
+            <div className="row" style={{ marginTop: "0.55rem" }}>
+              <label className="field-label">
+                Max depth
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="Unlimited"
+                  value={filters.max_depth ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    updateFilters({
+                      max_depth: v === "" ? null : Math.max(0, Number(v) || 0),
+                    });
+                  }}
+                  aria-label="Max folder depth"
+                />
+              </label>
+            </div>
+            <p className="meta" style={{ marginTop: "0.65rem" }}>
+              Exclude these folders (must be under a selected place)
+            </p>
+            <div className="chip-list">
+              {filters.exclude_paths.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="chip"
+                  onClick={() =>
+                    updateFilters({
+                      exclude_paths: filters.exclude_paths.filter((x) => x !== p),
+                    })
+                  }
+                >
+                  {folderLabel(p)} ×
+                </button>
+              ))}
+            </div>
+            <div className="row" style={{ marginTop: "0.45rem" }}>
+              <input
+                type="text"
+                value={excludePathInput}
+                onChange={(e) => setExcludePathInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addExcludePath()}
+                placeholder="Path to skip"
+                aria-label="Exclude path"
+              />
+              <button type="button" className="ghost" onClick={addExcludePath}>
+                Exclude
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="linkish"
+            onClick={() => setWhatOpen((o) => !o)}
+            aria-expanded={whatOpen}
+          >
+            {whatOpen ? "Hide: What should we look for?" : "What should we look for?"}
+          </button>
+          {whatOpen && (
+            <div className="what-panel" data-tour="tour-what">
+              <h3 className="loc-heading">File types</h3>
+              <div className="loc-grid cat-grid" role="group" aria-label="File categories">
+                {ALL_CATEGORIES.map((cat) => {
+                  const on = filters.categories.includes(cat);
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`loc-tile${on ? " loc-on" : ""}`}
+                      aria-pressed={on}
+                      onClick={() => toggleCategory(cat)}
+                    >
+                      <strong className="loc-label">{CATEGORY_LABELS[cat]}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="row" style={{ marginTop: "0.75rem" }}>
+                <label className="field-label">
+                  Min size
+                  <input
+                    type="text"
+                    value={minSizeInput}
+                    onChange={(e) => setMinSizeInput(e.target.value)}
+                    onBlur={() =>
+                      updateFilters({ min_size: parseSizeInput(minSizeInput) })
+                    }
+                    placeholder="e.g. 1mb"
+                    aria-label="Minimum file size"
+                  />
+                </label>
+                <label className="field-label">
+                  Max size
+                  <input
+                    type="text"
+                    value={maxSizeInput}
+                    onChange={(e) => setMaxSizeInput(e.target.value)}
+                    onBlur={() =>
+                      updateFilters({ max_size: parseSizeInput(maxSizeInput) })
+                    }
+                    placeholder="e.g. 2gb"
+                    aria-label="Maximum file size"
+                  />
+                </label>
+              </div>
+              <div className="row" style={{ marginTop: "0.55rem" }}>
+                <label className="field-label grow">
+                  Include extensions only
+                  <input
+                    type="text"
+                    value={includeExtInput}
+                    onChange={(e) => setIncludeExtInput(e.target.value)}
+                    onBlur={() =>
+                      updateFilters({
+                        include_extensions: splitTags(includeExtInput),
+                      })
+                    }
+                    placeholder="jpg, png (empty = any)"
+                    aria-label="Include extensions"
+                  />
+                </label>
+              </div>
+              <div className="row" style={{ marginTop: "0.55rem" }}>
+                <label className="field-label grow">
+                  Exclude extensions
+                  <input
+                    type="text"
+                    value={excludeExtInput}
+                    onChange={(e) => setExcludeExtInput(e.target.value)}
+                    onBlur={() =>
+                      updateFilters({
+                        exclude_extensions: splitTags(excludeExtInput),
+                      })
+                    }
+                    placeholder="tmp, log"
+                    aria-label="Exclude extensions"
+                  />
+                </label>
+              </div>
+              <p className="meta" style={{ marginTop: "0.65rem" }}>
+                Skip folders/files named
+              </p>
+              <div className="chip-list">
+                {filters.exclude_names.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className="chip"
+                    onClick={() =>
+                      updateFilters({
+                        exclude_names: filters.exclude_names.filter((x) => x !== n),
+                      })
+                    }
+                  >
+                    {n} ×
+                  </button>
+                ))}
+              </div>
+              <div className="row" style={{ marginTop: "0.45rem" }}>
+                <input
+                  type="text"
+                  value={excludeNameInput}
+                  onChange={(e) => setExcludeNameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    const v = excludeNameInput.trim();
+                    if (!v || filters.exclude_names.includes(v)) return;
+                    updateFilters({
+                      exclude_names: [...filters.exclude_names, v],
+                    });
+                    setExcludeNameInput("");
+                  }}
+                  placeholder="Add name to skip"
+                  aria-label="Exclude name"
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    const v = excludeNameInput.trim();
+                    if (!v || filters.exclude_names.includes(v)) return;
+                    updateFilters({
+                      exclude_names: [...filters.exclude_names, v],
+                    });
+                    setExcludeNameInput("");
+                  }}
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    const next = sensibleFilters();
+                    setFilters(next);
+                    saveFilters(next);
+                    setMinSizeInput("");
+                    setMaxSizeInput("");
+                    setIncludeExtInput("");
+                    setExcludeExtInput("");
+                  }}
+                >
+                  Reset filters
+                </button>
+              </div>
+            </div>
+          )}
 
           {customRoots.length > 0 && (
             <ul className="folder-cards">
@@ -635,7 +973,10 @@ export default function App() {
               />
             </div>
           )}
-          <div className="row" style={{ marginTop: "1rem" }} data-tour="tour-scan">
+          <p className="scan-summary meta" data-tour="tour-scan-summary">
+            {filterSummary(filters, roots.length)}
+          </p>
+          <div className="row" style={{ marginTop: "0.65rem" }} data-tour="tour-scan">
             <button
               type="button"
               className="primary"
