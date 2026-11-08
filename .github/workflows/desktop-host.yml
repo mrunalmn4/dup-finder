@@ -1,0 +1,105 @@
+# Optional host GUI packaging — manual only (workflow_dispatch).
+# Free-tier policy:
+#   - Never auto-runs (saves minutes)
+#   - Uses only standard GitHub-hosted runners (no larger / GPU / self-hosted)
+#   - macOS/Windows burn free minutes much faster on *private* repos — blocked unless
+#     the repo is public, or you explicitly choose "force-private" (you pay the minutes)
+
+name: desktop-host
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Platform pack
+        required: true
+        type: choice
+        options:
+          - macos
+          - windows
+          - skip
+      force_private:
+        description: Allow macOS/Windows on a private repo (uses free-minute budget aggressively)
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: desktop-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      allow: ${{ steps.check.outputs.allow }}
+    steps:
+      - id: check
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          FORCE: ${{ inputs.force_private }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = "skip" ]; then
+            echo "allow=false" >> "$GITHUB_OUTPUT"
+            echo "Skipped by input."
+            exit 0
+          fi
+          if [ "$PRIVATE" = "true" ] && [ "$FORCE" != "true" ]; then
+            echo "::error::Private repo: macOS/Windows hosted runners are costly on free tier. Make the repo public, or re-run with force_private=true."
+            echo "allow=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "allow=true" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: guard
+    if: needs.guard.outputs.allow == 'true' && inputs.target == 'macos'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: UI build
+        run: npm --prefix ui ci && npm --prefix ui run build
+      - name: Tauri build (macOS)
+        working-directory: src-tauri
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dup-finder-macos
+          path: src-tauri/target/release/bundle/
+          retention-days: 14
+
+  windows:
+    needs: guard
+    if: needs.guard.outputs.allow == 'true' && inputs.target == 'windows'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: UI build
+        run: npm --prefix ui ci && npm --prefix ui run build
+      - name: Tauri build (Windows)
+        working-directory: src-tauri
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dup-finder-windows
+          path: src-tauri/target/release/bundle/
+          retention-days: 14

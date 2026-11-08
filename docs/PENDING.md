@@ -19,7 +19,7 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Docker images | `dup-finder:release`, `dup-finder:release-amd64` |
 | API smoke | `docker/test/api_smoke.sh` |
 | S1-03 UI browser UAT | connect → roots → scan → dry-run confirm |
-| Layperson folder UX + onboarding/help | Choose folders / chips; first-run tour; Help guide |
+| Layperson folder UX + onboarding/help | Modes, Review tools, Confirm/Settings covered in Help + tour |
 | Where + What scan filters | Engine `ScanFilters`; UI presets/categories/size; CLI flags |
 | OS trash + permanent UI | `trash` crate with `.dup-finder-trash` fallback; type DELETE for permanent |
 | Async scan + progress | Job API/Tauri/UI bar; CLI `--progress` |
@@ -32,17 +32,29 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Full local test matrix | `docker/test/full_matrix.sh` (fixtures, unit, UI, API, quarantine RT, CLI progress) |
 | Cancel / compare / meta / E2E | Scan cancel; Compare modal; FileMeta; custom checkboxes; Playwright `docker/test/e2e.sh` |
 | Re-verify / theme / similar | Live BLAKE3 re-verify; dark+density; experimental dHash similar images |
+| Keep rules + keyboard + space summary | Newest/shortest/prefer-folder; j/k Review; post-trash freed toast |
+| Similar images select + fixtures | Confidence labels; tick→delete selection; `similar_photos/` PNGs |
+| Help/tour sync + themed checkboxes | Help covers modes/Review/Settings; shared `Checkbox` |
+| Visual E2E shots | Playwright light/dark Help/Review/Confirm → `artifacts/e2e-shots/` |
+| Desktop host workflow stub | `.github/workflows/desktop-host.yml` (workflow_dispatch) |
 
 ## Explicitly deferred to runners / CI (next phase)
 
 | Item | Needs |
 |------|-------|
-| macOS `.app` / `.dmg` (S1-08) | macOS runner + Rust + Tauri |
-| Windows MSI | Windows runner + Tauri |
+| macOS `.app` / `.dmg` (S1-08) | macOS runner + Rust + Tauri — use `desktop-host.yml` |
+| Windows MSI | Windows runner + Tauri — use `desktop-host.yml` |
 | Tauri GUI AppImage | Linux GUI runner / Tauri bundle |
 | Cosign / sigstore (P-06) | Signing secrets in CI |
-| Git remote + release tag upload | `origin` + release workflow |
+| Release tag upload | Tag + release workflow after `origin` push |
 | Branch protection + required checks | Repo admin |
+| Cosign in CI | Free Actions OK; needs signing secrets (not free infra — optional) |
+
+## Free runner policy (locked)
+
+- Default CI: **`ubuntu-latest` only** (`.github/workflows/ci.yml`)
+- No larger / GPU / self-hosted runners
+- macOS/Windows: **manual** `desktop-host.yml` only; blocked on private repos unless `force_private`
 
 ## Org / compliance (not code)
 

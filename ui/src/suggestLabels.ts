@@ -9,6 +9,8 @@ export function keepReasonLabel(code: string): string {
       return "First alphabetically";
     case "user_choice":
       return "Your choice";
+    case "prefer_folder":
+      return "Preferred folder";
     default:
       return code.replace(/_/g, " ");
   }
@@ -25,6 +27,8 @@ export function keepReasonDetail(code: string): string {
       return "Suggested keep: same age and path length — picked the first path in A–Z order.";
     case "user_choice":
       return "You chose this file as the one to keep.";
+    case "prefer_folder":
+      return "Suggested keep: this copy is under your preferred folder.";
     default:
       return `Suggested keep (${code}). You can change it with “Keep this instead”.`;
   }

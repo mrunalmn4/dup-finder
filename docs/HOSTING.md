@@ -17,6 +17,15 @@ Rough GitHub Free private-repo budget is billed as included **$** of compute (th
 → **GitHub** gives usable free/cheap **Windows + macOS** hosted runners and matches our existing workflow.  
 → Pick **GitLab** only if your org mandates it (then use **self-hosted** runners for macOS/Windows, or pay Premium).
 
+## Free-only Actions policy (this repo)
+
+| Workflow | Runner | When |
+|----------|--------|------|
+| `ci.yml` | `ubuntu-latest` | Every push/PR (tests); release-smoke on `main` push |
+| `desktop-host.yml` | `macos-latest` / `windows-latest` | Manual only; **blocked on private** unless `force_private` |
+
+No larger runners, no GPU, no self-hosted. Prefer a **public** repo so standard hosted minutes stay free.
+
 ## Next step
 
-Create a GitHub repo → `git remote add origin …` → push `main` → enable Actions.
+`git remote add origin git@github.com:mrunalmn4/dup-finder.git` → push `main` → enable Actions.

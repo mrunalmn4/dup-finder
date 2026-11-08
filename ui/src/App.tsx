@@ -18,10 +18,17 @@ import {
   type VerifyReport,
 } from "./api";
 import { exportSuggestCsv, exportSuggestJson } from "./exportReport";
+import Checkbox from "./Checkbox";
 import CompareModal from "./CompareModal";
 import FileMeta, { shortHash } from "./FileMeta";
 import FoldersPanel from "./FoldersPanel";
 import HelpGuide from "./HelpGuide";
+import {
+  applyKeepRule,
+  KEEP_RULE_OPTIONS,
+  similarConfidence,
+  type KeepRule,
+} from "./keepRules";
 import ModeChooser from "./ModeChooser";
 import Onboarding from "./Onboarding";
 import {
@@ -174,7 +181,14 @@ export default function App() {
   const [showFullPaths, setShowFullPaths] = useState(false);
   const [undoToast, setUndoToast] = useState<{
     originalPaths: string[];
+    freedBytes: number;
+    deletedCount: number;
   } | null>(null);
+  const [keepRule, setKeepRule] = useState<KeepRule>("newest_mtime");
+  const [preferFolder, setPreferFolder] = useState("");
+  const [focusGroup, setFocusGroup] = useState(0);
+  const [focusCand, setFocusCand] = useState(0);
+  const [similarSel, setSimilarSel] = useState<Record<string, boolean>>({});
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [compare, setCompare] = useState<{
     hash: string;
@@ -222,6 +236,73 @@ export default function App() {
     if (!suggest) return [];
     return filterSortGroups(suggest.groups, sortBy, cautionFilter, viewMode);
   }, [suggest, sortBy, cautionFilter, viewMode]);
+
+  useEffect(() => {
+    if (focusGroup >= visibleGroups.length) setFocusGroup(0);
+  }, [visibleGroups.length, focusGroup]);
+
+  useEffect(() => {
+    document
+      .querySelector<HTMLElement>(".cand-focus, .group-focus")
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focusGroup, focusCand]);
+
+  useEffect(() => {
+    if (step !== "results" || visibleGroups.length === 0) return;
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      const g = visibleGroups[focusGroup];
+      if (!g) return;
+      if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        setFocusGroup((i) => Math.min(visibleGroups.length - 1, i + 1));
+        setFocusCand(0);
+        return;
+      }
+      if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setFocusGroup((i) => Math.max(0, i - 1));
+        setFocusCand(0);
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusCand((c) =>
+          Math.min(Math.max(0, g.delete_candidates.length - 1), c + 1),
+        );
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusCand((c) => Math.max(0, c - 1));
+        return;
+      }
+      if (e.key === " " || e.key === "Spacebar") {
+        const cand = g.delete_candidates[focusCand];
+        if (!cand) return;
+        e.preventDefault();
+        setSelected((s) => ({ ...s, [cand.path]: !s[cand.path] }));
+        return;
+      }
+      if (e.key === "Enter") {
+        const cand = g.delete_candidates[focusCand];
+        if (!cand) return;
+        e.preventDefault();
+        setCompare({ hash: g.hash, other: cand });
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [step, visibleGroups, focusGroup, focusCand]);
 
   function cautionFor(path: string, cautions: FileCaution[] | undefined): FileCaution | undefined {
     return cautions?.find((c) => c.path === path && c.level !== "none");
@@ -621,6 +702,17 @@ export default function App() {
     });
   }
 
+  function applyKeepRuleToAll() {
+    if (!suggest) return;
+    if (keepRule === "prefer_folder" && !preferFolder.trim()) {
+      setError("Enter a folder path (or prefix) for Prefer folder.");
+      return;
+    }
+    setError(null);
+    setSuggest(applyKeepRule(suggest, keepRule, preferFolder));
+    setSelected({});
+  }
+
   /** Promote a candidate to keep; previous keep becomes an unchecked candidate. */
   function promoteKeep(hash: string, nextKeep: FileRecord) {
     setSuggest((prev) => {
@@ -813,7 +905,22 @@ export default function App() {
           o.kind.toLowerCase() === "deleted",
       );
       if (deleted.length > 0) {
-        setUndoToast({ originalPaths: originals });
+        const sizeByPath = new Map<string, number>();
+        if (suggest) {
+          for (const g of suggest.groups) {
+            sizeByPath.set(g.keep.path, g.keep.size);
+            for (const c of g.delete_candidates) sizeByPath.set(c.path, c.size);
+          }
+        }
+        const freedBytes = deleted.reduce(
+          (n, o) => n + (sizeByPath.get(o.path) ?? 0),
+          0,
+        );
+        setUndoToast({
+          originalPaths: originals,
+          freedBytes,
+          deletedCount: deleted.length,
+        });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1437,13 +1544,54 @@ export default function App() {
               </div>
             </div>
             <label className="check-line seg-check">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={showFullPaths}
-                onChange={(e) => setShowFullPaths(e.target.checked)}
+                onChange={setShowFullPaths}
               />
               Full paths
             </label>
+          </div>
+          <div className="review-controls keep-rules" aria-label="Keep rules">
+            <div className="seg-block">
+              <span className="seg-label" id="keep-rule-label">
+                Keep rule
+              </span>
+              <div className="seg" role="group" aria-labelledby="keep-rule-label">
+                {KEEP_RULE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`seg-btn${keepRule === opt.id ? " on" : ""}`}
+                    aria-pressed={keepRule === opt.id}
+                    onClick={() => setKeepRule(opt.id)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {keepRule === "prefer_folder" && (
+              <label className="field-label grow">
+                Prefer folder / prefix
+                <input
+                  type="text"
+                  value={preferFolder}
+                  onChange={(e) => setPreferFolder(e.target.value)}
+                  placeholder="/photos or D:\\Pictures"
+                  aria-label="Preferred folder path prefix"
+                />
+              </label>
+            )}
+            <button
+              type="button"
+              className="ghost compact"
+              onClick={applyKeepRuleToAll}
+            >
+              Apply to all groups
+            </button>
+            <p className="meta keep-rules-hint">
+              Keyboard: j/k groups · ↑/↓ candidates · Space select · Enter Compare
+            </p>
           </div>
           {suggest.groups.length === 0 && (
             <div className="empty-state">
@@ -1466,10 +1614,14 @@ export default function App() {
               </p>
             </div>
           )}
-          {visibleGroups.map((g) => {
+          {visibleGroups.map((g, gi) => {
             const groupCritical = (g.cautions || []).some((c) => c.level === "critical");
             return (
-            <div className="group" key={g.hash}>
+            <div
+              className={`group${gi === focusGroup ? " group-focus" : ""}`}
+              key={g.hash}
+              data-focus-group={gi === focusGroup ? "1" : undefined}
+            >
               <div className="group-head">
                 <div className="meta">
                   {formatBytes(g.reclaimable_bytes)} reclaimable if extras removed
@@ -1479,7 +1631,7 @@ export default function App() {
                 </div>
                 <button
                   type="button"
-                  className="ghost compact"
+                  className="primary compact"
                   disabled={g.delete_candidates.length === 0}
                   onClick={() => acceptGroupSuggestion(g.hash)}
                   title={
@@ -1537,24 +1689,24 @@ export default function App() {
                   )}
                 </div>
               </div>
-              {g.delete_candidates.map((c) => {
+              {g.delete_candidates.map((c, ci) => {
                 const caution = cautionFor(c.path, g.cautions);
+                const candFocus = gi === focusGroup && ci === focusCand;
                 return (
-                <div key={c.path} className="candidate-row">
+                <div
+                  key={c.path}
+                  className={`candidate-row${candFocus ? " cand-focus" : ""}`}
+                >
                   <label className="candidate">
-                    <span className="check">
-                      <input
-                        type="checkbox"
-                        checked={!!selected[c.path]}
-                        onChange={(e) =>
-                          setSelected((s) => ({
-                            ...s,
-                            [c.path]: e.target.checked,
-                          }))
-                        }
-                      />
-                      <span className="check-ui" aria-hidden />
-                    </span>
+                    <Checkbox
+                      checked={!!selected[c.path]}
+                      onChange={(on) =>
+                        setSelected((s) => ({
+                          ...s,
+                          [c.path]: on,
+                        }))
+                      }
+                    />
                     <Thumb path={c.path} mime={c.mime} />
                     <span className="cand-copy">
                       <span className="path" title={c.path}>
@@ -1617,40 +1769,79 @@ export default function App() {
           <div className="similar-panel">
             <div className="panel-head">
               <h3 className="loc-heading" style={{ margin: 0 }}>
-                Similar images (experimental)
+                Similar images
               </h3>
               <button
                 type="button"
                 className="ghost compact"
                 disabled={!scanId || similarBusy}
-                onClick={() => void findSimilar()}
+                onClick={() => {
+                  setSimilarSel({});
+                  void findSimilar();
+                }}
               >
                 {similarBusy ? "Searching…" : "Find similar photos"}
               </button>
             </div>
             <p className="meta">
-              Looks for near-duplicate photos by visual fingerprint (dHash) —
-              not the same as exact BLAKE3 matches above. Review carefully.
+              Near-duplicate photos by visual fingerprint (dHash) — not the same
+              as exact BLAKE3 matches above. Tick copies to add them to your
+              delete selection, then Preview delete.
             </p>
             {similarGroups.length === 0 ? (
               <p className="meta">No similar groups loaded yet (or none found).</p>
             ) : (
-              <ul className="roots">
-                {similarGroups.map((sg) => (
-                  <li key={sg.dhash + sg.paths.join("|")}>
-                    <span className="meta">
-                      {sg.paths.length} images · max distance {sg.max_distance}
-                    </span>
-                    <ul className="roots">
-                      {sg.paths.map((p) => (
-                        <li key={p}>
-                          <span className="path">{showFullPaths ? p : friendlyPath(p)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="roots similar-list">
+                  {similarGroups.map((sg) => {
+                    const conf = similarConfidence(sg.max_distance);
+                    return (
+                      <li key={sg.dhash + sg.paths.join("|")} className="similar-group">
+                        <span className="meta">
+                          {sg.paths.length} images ·{" "}
+                          <span className={`similar-conf ${conf.level}`}>
+                            {conf.label}
+                          </span>{" "}
+                          (distance {sg.max_distance})
+                        </span>
+                        <ul className="roots">
+                          {sg.paths.map((p) => (
+                            <li key={p}>
+                              <label className="check-line">
+                                <Checkbox
+                                  checked={!!similarSel[p]}
+                                  onChange={(on) =>
+                                    setSimilarSel((s) => ({ ...s, [p]: on }))
+                                  }
+                                />
+                                <span className="path">
+                                  {showFullPaths ? p : friendlyPath(p)}
+                                </span>
+                              </label>
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <button
+                  type="button"
+                  className="ghost compact"
+                  disabled={!Object.values(similarSel).some(Boolean)}
+                  onClick={() => {
+                    setSelected((s) => {
+                      const next = { ...s };
+                      for (const [p, on] of Object.entries(similarSel)) {
+                        if (on) next[p] = true;
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  Add ticked similar to delete selection
+                </button>
+              </>
             )}
           </div>
           <div className="row" style={{ marginTop: "1rem" }}>
@@ -1743,6 +1934,11 @@ export default function App() {
           )}
           {undoToast && deleteModeDone === "trash" && (
             <div className="undo-toast" role="status">
+              <strong>
+                Freed about {formatBytes(undoToast.freedBytes)} (
+                {undoToast.deletedCount} file
+                {undoToast.deletedCount === 1 ? "" : "s"})
+              </strong>
               <p>
                 Files moved to trash. If they landed in{" "}
                 <code>.dup-finder-trash</code>, you can restore them now.

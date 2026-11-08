@@ -1,3 +1,7 @@
+# Free-tier only: standard ubuntu-latest (no larger / GPU / self-hosted runners).
+# Public repos: Actions minutes on standard GitHub-hosted runners are free.
+# Private repos: stays within included free-minute budget (Linux is cheapest).
+
 name: ci
 
 on:
@@ -5,13 +9,22 @@ on:
     branches: [main, master]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Fixture check
         run: docker compose run --rm fixtures
+      - name: Keep-rules contract
+        run: node docker/test/keep_rules_test.mjs
+      - name: Session logic
+        run: node docker/test/session_logic_test.mjs
       - name: Rust tests
         run: docker compose run --rm rust-test
       - name: UI build
@@ -19,7 +32,9 @@ jobs:
 
   release-smoke:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    timeout-minutes: 60
+    # Only on main pushes — avoids burning private free minutes on every PR
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: test
     steps:
       - uses: actions/checkout@v4
@@ -36,3 +51,5 @@ jobs:
         with:
           name: dup-finder-linux
           path: artifacts/release/
+          if-no-files-found: warn
+          retention-days: 14

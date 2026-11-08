@@ -1,5 +1,6 @@
 import type { QuarantinedFile, SuggestedLocation } from "./api";
 import { folderLabel, formatBytes, locationKindLabel } from "./api";
+import Checkbox from "./Checkbox";
 import {
   ALL_CATEGORIES,
   CATEGORY_LABELS,
@@ -308,10 +309,9 @@ export default function FoldersPanel(p: Props) {
         <div className="where-extra">
           <h3 className="loc-heading">Where extras</h3>
           <label className="check-line">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={p.filters.include_hidden}
-              onChange={(e) => p.updateFilters({ include_hidden: e.target.checked })}
+              onChange={(on) => p.updateFilters({ include_hidden: on })}
             />
             Include hidden files and folders
           </label>
@@ -752,13 +752,12 @@ export default function FoldersPanel(p: Props) {
                   {p.quarantine.map((q) => (
                     <li key={q.path}>
                       <label className="candidate">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={!!p.quarantineSel[q.path]}
-                          onChange={(e) =>
+                          onChange={(on) =>
                             p.setQuarantineSel((s) => ({
                               ...s,
-                              [q.path]: e.target.checked,
+                              [q.path]: on,
                             }))
                           }
                         />

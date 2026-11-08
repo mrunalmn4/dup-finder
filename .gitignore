@@ -26,11 +26,14 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Graphify sidecars / caches (keep published outputs if desired)
+# Graphify sidecars / caches / regenerated HTML (rebuild locally)
 graphify-out/.graphify_*
 graphify-out/cost.json
 graphify-out/.needs_update
 graphify-out/cache/
+graphify-out/2026-*/
+graphify-out/graph.html
+graphify-out/manifest.json
 **/__graphify_cache__/
 
 # Test / coverage

@@ -1,5 +1,43 @@
 /** Animated mini-UI demos used as screenshot / GIF stand-ins in Help. */
 
+export function ModesDemo() {
+  return (
+    <figure className="help-figure">
+      <div className="demo-frame demo-modes" aria-hidden>
+        <div className="demo-chrome">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="demo-body">
+          <div className="demo-title">How do you want to set up?</div>
+          <div className="demo-tiles">
+            <div className="demo-tile on pulse">
+              <em>Mode</em>
+              <strong>Simple</strong>
+            </div>
+            <div className="demo-tile">
+              <em>Mode</em>
+              <strong>Smart</strong>
+            </div>
+            <div className="demo-tile">
+              <em>Mode</em>
+              <strong>Guided</strong>
+            </div>
+            <div className="demo-tile">
+              <em>Mode</em>
+              <strong>Advanced</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        Pick a setup style once. Change mode anytime from Folders when idle.
+      </figcaption>
+    </figure>
+  );
+}
+
 export function FoldersDemo({ desktop }: { desktop: boolean }) {
   return (
     <figure className="help-figure">
@@ -48,10 +86,15 @@ export function ReviewDemo() {
           <div className="demo-group">
             <div className="demo-keep">
               vacation.jpg <span className="demo-badge keep">Keep</span>
+              <span className="demo-badge keep">Shortest path</span>
+            </div>
+            <div className="demo-why">
+              Suggested keep: this path is shorter (often the “main” copy).
             </div>
             <label className="demo-cand">
               <span className="demo-check tick" />
               vacation copy.jpg <span className="demo-badge drop">Suggested</span>
+              <span className="demo-mini">Compare</span>
             </label>
             <label className="demo-cand faint">
               <span className="demo-check" />
@@ -61,7 +104,8 @@ export function ReviewDemo() {
         </div>
       </div>
       <figcaption>
-        Keep is protected. Tick copies to remove, or use Accept suggestion.
+        Keep is protected. Tick copies to remove, Compare side-by-side, or Accept
+        suggestion.
       </figcaption>
     </figure>
   );
@@ -82,7 +126,7 @@ export function ConfirmDemo() {
             <div className="demo-path strike delay">…/IMG_1042.jpg</div>
           </div>
           <div className="demo-btn danger pulse-slow">Confirm trash</div>
-          <div className="demo-ok fade-in">Moved to OS Trash</div>
+          <div className="demo-ok fade-in">Moved to OS Trash · Undo available</div>
         </div>
       </div>
       <figcaption>

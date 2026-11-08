@@ -1,5 +1,4 @@
 import type { FileRecord } from "./api";
-import { formatBytes } from "./api";
 import FileMeta, { shortHash } from "./FileMeta";
 import Thumb from "./Thumb";
 import { keepReasonDetail, keepReasonLabel } from "./suggestLabels";
@@ -11,11 +10,6 @@ type Props = {
   onClose: () => void;
   onKeepOther: () => void;
 };
-
-function formatMtime(secs: number | null): string {
-  if (secs == null) return "—";
-  return new Date(secs * 1000).toLocaleString();
-}
 
 export default function CompareModal({
   keep,
@@ -56,18 +50,6 @@ export default function CompareModal({
               {keep.path}
             </p>
             <FileMeta file={keep} showHash />
-            <table className="compare-table">
-              <tbody>
-                <tr>
-                  <th>Size</th>
-                  <td>{formatBytes(keep.size)}</td>
-                </tr>
-                <tr>
-                  <th>Modified</th>
-                  <td>{formatMtime(keep.mtime_secs)}</td>
-                </tr>
-              </tbody>
-            </table>
           </article>
           <article className="compare-card">
             <header>
@@ -78,18 +60,6 @@ export default function CompareModal({
               {other.path}
             </p>
             <FileMeta file={other} showHash />
-            <table className="compare-table">
-              <tbody>
-                <tr>
-                  <th>Size</th>
-                  <td>{formatBytes(other.size)}</td>
-                </tr>
-                <tr>
-                  <th>Modified</th>
-                  <td>{formatMtime(other.mtime_secs)}</td>
-                </tr>
-              </tbody>
-            </table>
             <button type="button" className="primary" onClick={onKeepOther}>
               Keep this instead
             </button>

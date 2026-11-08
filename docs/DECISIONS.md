@@ -48,3 +48,6 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-07 | Live re-verify | `POST /v1/verify` re-hashes a group vs stored BLAKE3 |
 | 2026-11-07 | Similar images | Experimental dHash via `POST /v1/similar`; exact BLAKE3 remains primary |
 | 2026-11-07 | Appearance | Theme light/dark/system + density in Settings (`dup.theme.v1` / `dup.density.v1`) |
+| 2026-11-08 | Keep rules (UI) | Client re-pick keep: newest_mtime / shortest_path / prefer_folder; does not change engine default suggest |
+| 2026-11-08 | Review keyboard | j/k groups, ↑/↓ candidates, Space toggle, Enter Compare (when not in inputs) |
+| 2026-11-08 | Similar images UX | Confidence from dHash distance; optional select into delete set; fixtures under `similar_photos/` |

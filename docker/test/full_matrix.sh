@@ -7,8 +7,9 @@ cd "$ROOT"
 echo "=== 1) Fixtures ==="
 docker compose run --rm fixtures
 
-echo "=== 2) Session logic (node) ==="
+echo "=== 2) Session logic + keep rules (node) ==="
 node docker/test/session_logic_test.mjs
+node docker/test/keep_rules_test.mjs
 
 echo "=== 3) Rust unit + scale (engine + app + cli lib if any) ==="
 docker compose run --rm --no-deps rust-test cargo test --workspace --lib -- --test-threads=4

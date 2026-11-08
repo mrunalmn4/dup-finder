@@ -28,26 +28,31 @@ export default function Onboarding({ desktop, onDone, onPrepare }: Props) {
       body: "Find duplicate files by what is inside them — even if the name changed. Everything stays on your computer.",
     },
     {
+      target: "tour-modes",
+      title: "Pick a setup style",
+      body: "Simple, Smart, Guided, or Advanced. You can change this later from Folders with Change mode. If a Review is already in progress, that screen comes back first.",
+    },
+    {
       target: "tour-folders",
       title: "Choose folders to scan",
       body: desktop
-        ? "Tap drive and folder tiles to select them (several at once). Browse for more if you need another path."
+        ? "Tap drive and folder tiles to select them (several at once). Browse for more if you need another path. Filters and “what to look for” depend on your setup mode."
         : "Tap the tiles listed from the API machine. Connect in Settings first. Your real Mac/Windows drives need the desktop app.",
     },
     {
       target: "tour-scan",
       title: "Scan when you are ready",
-      body: "After at least one folder is listed, tap Scan. You will see how many files were checked and how much space duplicates use.",
+      body: "After at least one folder is listed, tap Scan. Watch progress, cancel if needed, then Review duplicates with keep reasons, Compare, and re-verify.",
     },
     {
       target: "tour-stepper",
       title: "Review, then confirm",
-      body: "Progress moves Folders → Review → Confirm. Nothing is removed on Review — you tick copies, preview exact paths, then Trash (OS Trash when available) or permanently delete with a second confirmation.",
+      body: "Progress moves Folders → Review → Confirm. On Review: keep rules, Compare, j/k keyboard, then preview exact paths. Trash (OS Trash when available) shows space freed; permanently delete by typing DELETE. Undo may restore from quarantine.",
     },
     {
       target: "tour-help",
       title: "Help anytime",
-      body: "Open Help for picture guides of each step. You can replay this highlighted tour with Show tour.",
+      body: "Open Help for picture guides of modes, Review tools, and Settings (theme, density, notifications). Replay this tour with Show tour.",
     },
   ];
 
@@ -64,7 +69,20 @@ export default function Onboarding({ desktop, onDone, onPrepare }: Props) {
         setRect(null);
         return;
       }
-      const el = document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`);
+      let el = document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`);
+      // Mode chooser is only on first visit / Change mode; fall back to folders.
+      if (!el && step.target === "tour-modes") {
+        el = document.querySelector<HTMLElement>(`[data-tour="tour-folders"]`);
+      }
+      // Folders panel is hidden while mode chooser is up.
+      if (!el && step.target === "tour-folders") {
+        el = document.querySelector<HTMLElement>(`[data-tour="tour-modes"]`);
+      }
+      if (!el && step.target === "tour-scan") {
+        el =
+          document.querySelector<HTMLElement>(`[data-tour="tour-folders"]`) ||
+          document.querySelector<HTMLElement>(`[data-tour="tour-modes"]`);
+      }
       if (!el) {
         setRect(null);
         return;
