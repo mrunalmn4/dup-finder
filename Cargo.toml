@@ -34,7 +34,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 rusqlite = { version = "0.32", features = ["bundled"] }
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.7", features = ["cors"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 dup-finder-engine = { path = "crates/dup-finder-engine" }
 dup-finder-app = { path = "crates/dup-finder-app" }
