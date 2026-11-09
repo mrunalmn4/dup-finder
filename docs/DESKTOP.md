@@ -31,9 +31,17 @@ cd src-tauri && cargo tauri build
 
 Artifacts land under `src-tauri/target/release/bundle/`.
 
+## Host smoke (GitHub Actions)
+
+Manual workflow: `.github/workflows/desktop-host.yml` (`target=both|macos|windows`).
+
+Each host job: `cargo test` (engine + app) → UI build → `cargo tauri build` → `scripts/desktop/smoke-bundle.sh` (`.app`/Mach-O on macOS; `.msi`/PE on Windows) → upload bundle artifacts (14 days).
+
+Full interactive GUI UAT still needs a human on a real desktop; the workflow gates that installers **built**.
+
 ## Docker note
 
-Full WebView builds need OS GUI libraries. CI verifies `dup-finder-app` + engine + API instead; desktop packaging is a host/CI-image job with Tauri deps.
+Full WebView builds need OS GUI libraries. Default CI verifies `dup-finder-app` + engine + API instead; desktop packaging is `desktop-host.yml`.
 
 ## Windows roots
 

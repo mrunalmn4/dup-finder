@@ -1,9 +1,12 @@
-# Optional host GUI packaging — manual only (workflow_dispatch).
+# Optional host GUI packaging + smoke — manual only (workflow_dispatch).
 # Free-tier policy:
 #   - Never auto-runs (saves minutes)
 #   - Uses only standard GitHub-hosted runners (no larger / GPU / self-hosted)
 #   - macOS/Windows burn free minutes much faster on *private* repos — blocked unless
 #     the repo is public, or you explicitly choose "force-private" (you pay the minutes)
+#
+# Smoke = Tauri bundle exists + platform binary looks real (Mach-O / PE).
+# Full GUI UAT still needs a human on a real desktop; this gates "we built installers".
 
 name: desktop-host
 
@@ -15,9 +18,11 @@ on:
         required: true
         type: choice
         options:
+          - both
           - macos
           - windows
           - skip
+        default: both
       force_private:
         description: Allow macOS/Windows on a private repo (uses free-minute budget aggressively)
         required: true
@@ -25,7 +30,7 @@ on:
         default: false
 
 concurrency:
-  group: desktop-host-${{ github.ref }}
+  group: desktop-host-${{ github.ref }}-${{ inputs.target }}
   cancel-in-progress: true
 
 jobs:
@@ -56,7 +61,7 @@ jobs:
 
   macos:
     needs: guard
-    if: needs.guard.outputs.allow == 'true' && inputs.target == 'macos'
+    if: needs.guard.outputs.allow == 'true' && (inputs.target == 'macos' || inputs.target == 'both')
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -66,6 +71,12 @@ jobs:
           node-version: "22"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Engine/app unit tests (host)
+        run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: UI build
         run: npm --prefix ui ci && npm --prefix ui run build
       - name: Tauri build (macOS)
@@ -73,6 +84,12 @@ jobs:
         run: |
           cargo install tauri-cli --version "^2" --locked
           cargo tauri build
+      - name: Smoke macOS bundle
+        env:
+          PLATFORM: macos
+          BUNDLE_DIR: src-tauri/target/release/bundle
+          RELEASE_DIR: src-tauri/target/release
+        run: bash scripts/desktop/smoke-bundle.sh
       - uses: actions/upload-artifact@v5
         with:
           name: dup-finder-macos
@@ -81,7 +98,7 @@ jobs:
 
   windows:
     needs: guard
-    if: needs.guard.outputs.allow == 'true' && inputs.target == 'windows'
+    if: needs.guard.outputs.allow == 'true' && (inputs.target == 'windows' || inputs.target == 'both')
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -91,13 +108,27 @@ jobs:
           node-version: "22"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Engine/app unit tests (host)
+        run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: UI build
         run: npm --prefix ui ci && npm --prefix ui run build
       - name: Tauri build (Windows)
         working-directory: src-tauri
+        shell: bash
         run: |
           cargo install tauri-cli --version "^2" --locked
           cargo tauri build
+      - name: Smoke Windows bundle
+        shell: bash
+        env:
+          PLATFORM: windows
+          BUNDLE_DIR: src-tauri/target/release/bundle
+          RELEASE_DIR: src-tauri/target/release
+        run: bash scripts/desktop/smoke-bundle.sh
       - uses: actions/upload-artifact@v5
         with:
           name: dup-finder-windows
