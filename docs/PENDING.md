@@ -15,13 +15,18 @@ See also: [SCALE.md](SCALE.md), [HOSTING.md](HOSTING.md), [BRANCH_PROTECTION.md]
 | OSS kit | LICENSE, SECURITY, CONTRIBUTING, CoC, SUPPORT, CHANGELOG, issue/PR templates, Dependabot, CODEOWNERS |
 | Build-once release | `ci.yml` tests only; `release.yml` quality-gate → build → smoke → publish |
 
-## In progress / gated by next green release run
+## Gated by maintainer settings
 
 | Item | Needs |
 |------|-------|
-| macOS `.app` / `.dmg` on Release | `release.yml` with `include_tauri=true` (workspace exclude + smoke landed) |
-| Windows MSI/NSIS on Release | same |
 | Branch protection enforced | Maintainer applies [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md) (require `ci` / `test`) |
+
+## Host GUI on Releases (smoked)
+
+| Item | Evidence |
+|------|----------|
+| macOS `.dmg` + `.app.zip` | [v0.1.0](https://github.com/mrunalmn4/dup-finder/releases/tag/v0.1.0) `Dup-Finder-macos-arm64.*` |
+| Windows MSI + NSIS setup | `Dup-Finder-windows-x86_64.msi` / `-setup.exe` |
 
 ## Explicitly deferred
 
