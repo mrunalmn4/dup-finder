@@ -76,6 +76,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Cache tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: cargo-tauri-2-${{ runner.os }}-${{ runner.arch }}
       - name: Engine/app unit tests (host)
         run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: UI build
@@ -83,7 +88,9 @@ jobs:
       - name: Tauri build (macOS)
         working-directory: src-tauri
         run: |
-          cargo install tauri-cli --version "^2" --locked
+          if ! command -v cargo-tauri >/dev/null 2>&1; then
+            cargo install tauri-cli --version "^2" --locked
+          fi
           cargo tauri build
       - name: Smoke macOS bundle
         env:
@@ -113,6 +120,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Cache tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: cargo-tauri-2-${{ runner.os }}-${{ runner.arch }}
       - name: Engine/app unit tests (host)
         run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: UI build
@@ -121,7 +133,9 @@ jobs:
         working-directory: src-tauri
         shell: bash
         run: |
-          cargo install tauri-cli --version "^2" --locked
+          if ! command -v cargo-tauri >/dev/null 2>&1; then
+            cargo install tauri-cli --version "^2" --locked
+          fi
           cargo tauri build
       - name: Smoke Windows bundle
         shell: bash

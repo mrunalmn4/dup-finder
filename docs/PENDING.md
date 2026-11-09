@@ -1,64 +1,42 @@
 # Pending (v0.1 → next)
 
-See also: [SCALE.md](SCALE.md), [HOSTING.md](HOSTING.md), [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md).
+See also: [SCALE.md](SCALE.md), [HOSTING.md](HOSTING.md), [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md), [RELEASING.md](RELEASING.md).
 
 **Rule:** do not claim a platform/channel “released” until that channel’s smoke test has passed.
 
-## Finished (local + GitHub)
+## Finished
 
 | Artifact / check | Evidence |
 |------------------|----------|
-| Linux arm64 + amd64 CLI / deb / rpm / AppDir | Local Docker + `release.yml` assets |
-| macOS / Windows CLI on Releases | `release.yml` host jobs + `smoke-cli.sh` |
-| GHCR image | `ghcr.io/mrunalmn4/dup-finder` |
-| Engine/UI/API UAT (Docker) | `docker/test/*`, Playwright shots |
-| OSS kit | LICENSE, SECURITY, CONTRIBUTING, CoC, SUPPORT, CHANGELOG, issue/PR templates, Dependabot, CODEOWNERS |
-| Build-once release | `ci.yml` tests only; `release.yml` quality-gate → build → smoke → publish |
+| Linux / macOS / Windows CLI + Tauri installers | [v0.1.1](https://github.com/mrunalmn4/dup-finder/releases/tag/v0.1.1) |
+| Build-once release + tag = bits | `release.yml` checks out `ref=<tag>` |
+| release-please automation | Conventional Commits → Release PR → tag → dispatch `release.yml` |
+| CI path filters + tauri-cli cache + SHA256SUMS fix | `.github/workflows/*` |
+| HTML audit export | Review/Confirm → Export HTML |
+| OSS kit | LICENSE, SECURITY, CONTRIBUTING, CoC, templates, Dependabot groups |
 
 ## Gated by maintainer settings
 
 | Item | Needs |
 |------|-------|
-| Branch protection enforced | Maintainer applies [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md) (require `ci` / `test`) |
+| Branch protection enforced | Apply [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md) (require `ci` / `test`) |
 
-## Host GUI on Releases (smoked)
+## Next product candidates
 
-| Item | Evidence |
-|------|----------|
-| macOS `.dmg` + `.app.zip` | [v0.1.0](https://github.com/mrunalmn4/dup-finder/releases/tag/v0.1.0) `Dup-Finder-macos-arm64.*` |
-| Windows MSI + NSIS setup | `Dup-Finder-windows-x86_64.msi` / `-setup.exe` |
-
-## Explicitly deferred
-
-| Item | Needs |
+| Item | Notes |
 |------|-------|
-| Tauri GUI AppImage (Linux) | Linux GUI runner / Tauri bundle |
-| Cosign / sigstore (P-06) | Signing secrets in CI |
-| Interactive human GUI UAT | Physical Mac/PC (CI smoke ≠ full UX) |
-
-## Free GitHub publishing (policy)
-
-| Surface | Status | Notes |
-|---------|--------|-------|
-| Actions artifacts | Yes (CI) | Temporary (~14 days); not a release channel |
-| **GitHub Releases + tags** | `release.yml` on `v*` | Build once → smoke → publish |
-| **GHCR** | `release.yml` | Free for public packages |
-| Wiki | **Not used** | Docs stay in-repo |
-| Paid / larger runners | **Never** | Standard hosted only |
+| Hardlink / reflink reclaim | Safer space recovery without trash |
+| Cosign / sigstore | Signing secrets |
+| Linux Tauri AppImage | GUI Linux runner |
+| Human GUI UAT | Physical Mac/PC smoke of `.dmg` / MSI |
+| Engine-level keep-rules | Today mostly UI |
 
 ## Free runner policy (locked)
 
-- Default CI: **`ubuntu-latest` only** (`.github/workflows/ci.yml`) — **tests only**
+- Default CI: **`ubuntu-latest` only** — tests only
 - Tag release: Linux + (public) macOS/Windows CLI + Tauri
 - `desktop-host.yml`: manual GUI debug only
-
-## Org / compliance (not code)
-
-| Item | Blocker |
-|------|---------|
-| Policy owners in `docs/policies/` | Assign humans |
-| Auditor SOC 2 / ISO Type I→II | Legal entity + observation window |
-| “Certified” marketing claim | External report only |
+- No paid / larger runners
 
 ## Out of v1
 

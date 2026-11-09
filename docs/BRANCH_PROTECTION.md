@@ -8,7 +8,7 @@ Apply these settings on GitHub → **Settings → Branches → Branch protection
 |---------|--------|
 | Require a pull request before merging | On (1 approval optional for solo maintainers) |
 | Require status checks to pass | On |
-| Status checks that are required | **`test`** (workflow `ci`, job name `test`) |
+| Status checks that are required | **`test`** (workflow `ci`, job name `test`) — keep this name; path filters skip steps, not the job |
 | Require branches to be up to date | On when practical |
 | Do not allow bypassing the above settings | On for org policies; solo may leave off |
 | Restrict who can push | Maintainers only |

@@ -17,10 +17,11 @@ Desktop (Tauri) needs host Rust + platform WebView deps — see [docs/DESKTOP.md
 ## Pull requests
 
 1. Keep diffs focused (one concern per PR when practical).
-2. Run the Docker test commands above before requesting review.
-3. If you touch delete paths, call out delete-safety implications and add/adjust tests.
-4. Update [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
-5. Do **not** add AI/Cursor attribution in commits, PRs, or docs (`Co-authored-by: Cursor`, “AI-generated”, etc.). Author as yourself.
+2. Use a [Conventional Commit](https://www.conventionalcommits.org/) **PR title** when squashing (`feat:`, `fix:`, `docs:`, …) so [release-please](docs/RELEASING.md) can version correctly.
+3. Run the Docker test commands above before requesting review.
+4. If you touch delete paths, call out delete-safety implications and add/adjust tests.
+5. User-visible notes land in CHANGELOG via release-please (or edit Unreleased if needed).
+6. Do **not** add AI/Cursor attribution in commits, PRs, or docs (`Co-authored-by: Cursor`, “AI-generated”, etc.). Author as yourself.
 
 ## Releases
 

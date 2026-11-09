@@ -56,3 +56,5 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-09 | src-tauri workspace | Root `workspace.exclude` + empty `[workspace]` in `src-tauri/Cargo.toml` |
 | 2026-11-09 | OSS surface | MIT LICENSE + SECURITY/CONTRIBUTING/CoC/SUPPORT/CHANGELOG + issue/PR templates + Dependabot + CODEOWNERS + BRANCH_PROTECTION doc |
 | 2026-11-09 | Tag discipline | Tag commit == release bits; never move public tags; `release.yml` checks out `ref=<tag>`; dispatch only rebuilds that tag; new work → new semver (`docs/RELEASING.md`) |
+| 2026-11-09 | release-please | Conventional Commits → Release PR → tag; `skip-github-release`; dispatch `release.yml` for assets (GITHUB_TOKEN cannot chain tag-push workflows) |
+| 2026-11-09 | HTML audit export | UI exports keep/delete suggestion report as printable HTML (paths/hashes only; no file contents) |

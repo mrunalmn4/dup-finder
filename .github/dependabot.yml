@@ -6,15 +6,27 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      cargo-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: "/ui"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      ui-dev-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+        dependency-type: "development"
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]

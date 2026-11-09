@@ -86,15 +86,37 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.tag }}
+      - name: Skip if CI already green for this commit
+        id: skip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          CONCL="$(gh run list -R "$GITHUB_REPOSITORY" --commit "$SHA" --workflow ci.yml --limit 8 \
+            --json conclusion,status \
+            --jq '[.[] | select(.status=="completed")][0].conclusion // empty')"
+          if [ "$CONCL" = "success" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "CI already green for $SHA — skipping duplicate Docker matrix."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "CI conclusion='${CONCL:-none}' — running full quality-gate."
+          fi
       - name: Fixture check
+        if: steps.skip.outputs.skip != 'true'
         run: docker compose run --rm fixtures
       - name: Keep-rules contract
+        if: steps.skip.outputs.skip != 'true'
         run: node docker/test/keep_rules_test.mjs
       - name: Session logic
+        if: steps.skip.outputs.skip != 'true'
         run: node docker/test/session_logic_test.mjs
       - name: Rust tests
+        if: steps.skip.outputs.skip != 'true'
         run: docker compose run --rm rust-test
       - name: UI build
+        if: steps.skip.outputs.skip != 'true'
         run: docker compose run --rm ui bash -lc "npm install && npm run build"
 
   linux:
@@ -163,6 +185,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Cache tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: cargo-tauri-2-${{ runner.os }}-${{ runner.arch }}
       - name: Engine/app unit tests (host)
         run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: Build CLI (macOS)
@@ -192,7 +219,9 @@ jobs:
         if: needs.resolve.outputs.tauri == 'true'
         working-directory: src-tauri
         run: |
-          cargo install tauri-cli --version "^2" --locked
+          if ! command -v cargo-tauri >/dev/null 2>&1; then
+            cargo install tauri-cli --version "^2" --locked
+          fi
           cargo tauri build
       - name: Smoke macOS Tauri bundle
         if: needs.resolve.outputs.tauri == 'true'
@@ -241,6 +270,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Cache tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: cargo-tauri-2-${{ runner.os }}-${{ runner.arch }}
       - name: Engine/app unit tests (host)
         run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: Build CLI (Windows)
@@ -264,7 +298,9 @@ jobs:
         working-directory: src-tauri
         shell: bash
         run: |
-          cargo install tauri-cli --version "^2" --locked
+          if ! command -v cargo-tauri >/dev/null 2>&1; then
+            cargo install tauri-cli --version "^2" --locked
+          fi
           cargo tauri build
       - name: Smoke Windows Tauri bundle
         if: needs.resolve.outputs.tauri == 'true'
@@ -394,6 +430,13 @@ jobs:
             fi
             cp "$f" "$dest"
           done < <(find artifacts/release artifacts/dist -type f -print0 2>/dev/null)
+          # Rebuild checksums over the final flat set (include installers + CLI).
+          (
+            cd "$STAGE"
+            find . -type f ! -name 'SHA256SUMS' ! -name 'NOTICE.txt' \
+              | sed 's|^\./||' | sort \
+              | while read -r f; do shasum -a 256 "$f"; done > SHA256SUMS
+          )
           mapfile -t FILES < <(find "$STAGE" -type f | sort)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "no release files" >&2

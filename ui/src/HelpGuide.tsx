@@ -88,7 +88,7 @@ export default function HelpGuide({ desktop, onClose, onStartTour }: Props) {
           / Prefer folder) and <strong>Apply to all groups</strong> to re-pick
           keeps in bulk. <strong>Re-verify now</strong> re-checks BLAKE3 hashes
           live. Sort and filter by space, caution, or same/across folders.
-          Export JSON/CSV anytime. Keyboard: j/k groups, ↑/↓ candidates, Space
+          Export JSON/CSV/HTML anytime. Keyboard: j/k groups, ↑/↓ candidates, Space
           select, Enter Compare. Critical or caution badges mean the path looks
           like system files, an app, or keys (.ssh) — leave those unchecked
           unless you are sure.

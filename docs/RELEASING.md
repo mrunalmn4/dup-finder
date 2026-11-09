@@ -3,43 +3,55 @@
 ## Rules
 
 1. **A Git tag is the source of truth** for a version. Release assets must be built from that tagged commit — never from a newer `main` tip attached to an old tag.
-2. **Never move / force-push an existing public tag** (`v0.1.0` stays forever). Ship fixes as `v0.1.1`, `v0.2.0`, etc.
-3. **Prefer tag push** (`git push origin vX.Y.Z`) to start `.github/workflows/release.yml`.  
-   `workflow_dispatch` is only for **rebuilding the same tagged commit** (flaky runner, lost assets). It checks out `ref: <tag>`, not `main`.
-4. Run `bash scripts/release/checklist.sh vX.Y.Z` on a clean `main` before tagging.
-5. CI job `test` must be green on the commit you tag.
+2. **Never move / force-push an existing public tag**. Ship fixes as `v0.1.2`, `v0.2.0`, etc.
+3. **Prefer automated Release PRs** via [release-please](https://github.com/googleapis/release-please) (Conventional Commits on `main`). Merging the Release PR creates the tag; Actions then dispatches `release.yml` for that tag.
+4. Manual fallback: `bash scripts/release/checklist.sh vX.Y.Z`, then annotated tag + push (or `workflow_dispatch` to rebuild an existing tag).
+5. `workflow_dispatch` only **rebuilds an existing tag** (checks out `ref: <tag>`, not `main`).
+6. CI job `test` should be green on the commit you tag (release quality-gate skips when it already is).
 
-## Cut a release
+## Conventional Commits (required for automation)
+
+| Prefix | Effect |
+|--------|--------|
+| `feat:` | minor (0.x → bump minor while pre-1.0 with `bump-minor-pre-major`) |
+| `fix:` | patch |
+| `feat!:` / `BREAKING CHANGE:` | major |
+| `docs:`, `chore:`, `ci:` | changelog only / no bump (unless configured otherwise) |
+
+Examples: `feat: add HTML audit export`, `fix: restore SHA256SUMS on publish`.
+
+## Automated path (preferred)
+
+1. Land work on `main` with Conventional Commit titles (PR squash titles count).
+2. `release-please` opens/updates PR `chore(main): release X.Y.Z` (versions + CHANGELOG).
+3. Merge that PR → creates tag `vX.Y.Z` → dispatches `release.yml` (build once → smoke → GitHub Release + GHCR).
+
+Config: `release-please-config.json`, `.release-please-manifest.json`, `.github/workflows/release-please.yml`.
+
+## Manual path
 
 ```bash
-# 1. main up to date, checklist green
 git checkout main && git pull
-bash scripts/release/checklist.sh v0.1.1
-
-# 2. annotated tag on the intended commit
-git tag -a v0.1.1 -m "Dup Finder v0.1.1"
-git push origin v0.1.1
-
-# 3. Watch Actions → release (quality-gate → build once → smoke → GitHub Release + GHCR)
+bash scripts/release/checklist.sh v0.1.2
+git tag -a v0.1.2 -m "Dup Finder v0.1.2"
+git push origin v0.1.2
 ```
 
-Bump before tagging (keep in sync):
+Version files kept in sync by release-please (or manually):
 
-- `CHANGELOG.md` — `## [X.Y.Z] - YYYY-MM-DD`
-- `Cargo.toml` workspace `version`
-- `src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json` `version`
-- `ui/package.json` `version` (informational)
+- `CHANGELOG.md`
+- `Cargo.toml` → `[workspace.package].version`
+- `src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json`
+- `ui/package.json`
 
 ## Republish the same tag
 
 ```text
 Actions → release → Run workflow
-  tag = v0.1.1          # must already exist
+  tag = v0.1.1
   include_desktop_hosts / include_tauri as needed
 ```
 
-This rebuilds **that tag’s tree** and uploads/clobbers assets on the existing GitHub Release.
-
 ## Historical note
 
-`v0.1.0` was created early (Linux-focused). Later GUI assets were briefly attached via dispatch from `main` without moving the tag. From `v0.1.1` onward, tag == bits.
+`v0.1.0` is historical (early Linux tag). Prefer `v0.1.1+`. From `v0.1.1` onward, tag == bits.

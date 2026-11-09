@@ -1,8 +1,6 @@
 # Free-tier only: standard ubuntu-latest (no larger / GPU / self-hosted runners).
-# Public repos: Actions minutes on standard GitHub-hosted runners are free.
-# Private repos: stays within included free-minute budget (Linux is cheapest).
-#
 # Tests only — packaging lives in release.yml (build once → smoke → publish).
+# Path filters skip expensive steps on docs-only PRs; job name stays `test` for branch protection.
 
 name: ci
 
@@ -21,13 +19,37 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'docker/**'
+              - 'docker-compose.yml'
+              - 'scripts/**'
+            ui:
+              - 'ui/**'
+              - 'src-tauri/**'
+              - 'docker/test/**'
       - name: Fixture check
+        if: github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true'
         run: docker compose run --rm fixtures
       - name: Keep-rules contract
+        if: github.event_name != 'pull_request' || steps.filter.outputs.ui == 'true'
         run: node docker/test/keep_rules_test.mjs
       - name: Session logic
+        if: github.event_name != 'pull_request' || steps.filter.outputs.ui == 'true'
         run: node docker/test/session_logic_test.mjs
       - name: Rust tests
+        if: github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true'
         run: docker compose run --rm rust-test
       - name: UI build
+        if: github.event_name != 'pull_request' || steps.filter.outputs.ui == 'true'
         run: docker compose run --rm ui bash -lc "npm install && npm run build"
+      - name: Docs-only PR note
+        if: github.event_name == 'pull_request' && steps.filter.outputs.rust != 'true' && steps.filter.outputs.ui != 'true'
+        run: echo "No rust/ui paths changed — skipped heavy checks."

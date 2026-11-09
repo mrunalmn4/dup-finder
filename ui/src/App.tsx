@@ -17,7 +17,7 @@ import {
   type SuggestReport,
   type VerifyReport,
 } from "./api";
-import { exportSuggestCsv, exportSuggestJson } from "./exportReport";
+import { exportSuggestCsv, exportSuggestHtml, exportSuggestJson } from "./exportReport";
 import Checkbox from "./Checkbox";
 import CompareModal from "./CompareModal";
 import FileMeta, { shortHash } from "./FileMeta";
@@ -1455,6 +1455,21 @@ export default function App() {
               <button
                 type="button"
                 className="ghost"
+                disabled={!summary}
+                onClick={() =>
+                  summary &&
+                  exportSuggestHtml(suggest, {
+                    scanned: summary.scanned,
+                    groups: summary.groups,
+                    reclaimable: summary.reclaimable,
+                  })
+                }
+              >
+                Export HTML
+              </button>
+              <button
+                type="button"
+                className="ghost"
                 disabled={candidateCount === 0}
                 onClick={selectAllReclaimable}
               >
@@ -1978,19 +1993,34 @@ export default function App() {
               Back
             </button>
             {suggest && summary && (
-              <button
-                type="button"
-                className="ghost"
-                onClick={() =>
-                  exportSuggestJson(suggest, {
-                    scanned: summary.scanned,
-                    groups: summary.groups,
-                    reclaimable: summary.reclaimable,
-                  })
-                }
-              >
-                Export JSON
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    exportSuggestJson(suggest, {
+                      scanned: summary.scanned,
+                      groups: summary.groups,
+                      reclaimable: summary.reclaimable,
+                    })
+                  }
+                >
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    exportSuggestHtml(suggest, {
+                      scanned: summary.scanned,
+                      groups: summary.groups,
+                      reclaimable: summary.reclaimable,
+                    })
+                  }
+                >
+                  Export HTML
+                </button>
+              </>
             )}
             <button
               type="button"

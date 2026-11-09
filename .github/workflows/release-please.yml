@@ -1,0 +1,43 @@
+# Conventional Commits on main → Release PR → merge → tag → trigger release.yml.
+# skip-github-release in config: our release.yml owns the GitHub Release + assets.
+# Tag pushes from GITHUB_TOKEN do not start other workflows, so we explicitly
+# dispatch release.yml when a release is created (preserves tag == bits).
+
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Dispatch asset build for new tag
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          echo "Dispatching release.yml for $TAG (checks out that tag)."
+          gh workflow run release.yml -R "$GITHUB_REPOSITORY" \
+            -f tag="$TAG" \
+            -f include_desktop_hosts=true \
+            -f include_tauri=true

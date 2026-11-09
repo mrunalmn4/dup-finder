@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- release-please automation (Conventional Commits → Release PR → tag → `release.yml`)
+- HTML audit export for keep/delete suggestions
+- CI path filters; release quality-gate skip when CI already green; tauri-cli cache
+- Dependabot grouped updates
+
+### Fixed
+
+- Publish always uploads a flat `SHA256SUMS` covering all release assets
+
 ## [0.1.1] - 2026-11-09
 
 ### Added
