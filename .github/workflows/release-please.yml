@@ -30,13 +30,26 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Dispatch asset build for new tag
-        if: ${{ steps.release.outputs.release_created == 'true' }}
+      # skip-github-release: release_created may stay false; tag_name is the signal.
+      # GITHUB_TOKEN tag pushes do not start other workflows — dispatch explicitly.
+      - name: Ensure tag exists + dispatch asset build
+        if: ${{ steps.release.outputs.release_created == 'true' || steps.release.outputs.tag_name != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag_name }}
         run: |
           set -euo pipefail
+          if [ -z "${TAG:-}" ]; then
+            echo "No tag_name from release-please; nothing to publish."
+            exit 0
+          fi
+          echo "tag=$TAG"
+          if ! git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "::warning::Tag $TAG missing on remote after release-please; creating annotated tag on HEAD."
+            git fetch --depth=1 origin "${GITHUB_REF_NAME}"
+            git tag -a "$TAG" "FETCH_HEAD" -m "Dup Finder $TAG"
+            git push origin "$TAG"
+          fi
           echo "Dispatching release.yml for $TAG (checks out that tag)."
           gh workflow run release.yml -R "$GITHUB_REPOSITORY" \
             -f tag="$TAG" \
