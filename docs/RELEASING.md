@@ -28,6 +28,8 @@ Examples: `feat: add HTML audit export`, `fix: restore SHA256SUMS on publish`.
 
 Config: `release-please-config.json`, `.release-please-manifest.json`, `.github/workflows/release-please.yml`.
 
+**Repo setting required:** Settings → Actions → General → Workflow permissions → **Read and write** + **Allow GitHub Actions to create and approve pull requests**.
+
 ## Manual path
 
 ```bash
