@@ -1,5 +1,8 @@
-# Free-tier GitHub Release + GHCR publish (public repos: standard runners free).
-# Trigger: push tag v* (e.g. v0.1.0). No paid runners, no cosign (optional later).
+# Free-tier multi-platform publish (public repo → standard hosted runners are free).
+# - Linux amd64 + arm64 (ubuntu-latest + buildx/qemu)
+# - macOS + Windows CLI (macos-latest / windows-latest; skipped on private unless forced)
+# - GitHub Release assets + GHCR (linux amd64 image; multi-arch when both build)
+# No larger/GPU/self-hosted runners. No cosign (optional later).
 
 name: release
 
@@ -13,6 +16,11 @@ on:
         description: Existing tag to (re)publish (e.g. v0.1.0)
         required: true
         type: string
+      include_desktop_hosts:
+        description: Build macOS/Windows CLI on free hosted runners
+        required: true
+        type: boolean
+        default: true
 
 concurrency:
   group: release-${{ github.ref }}
@@ -23,76 +31,235 @@ permissions:
   packages: write
 
 jobs:
-  publish:
+  resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
+      desktop: ${{ steps.ver.outputs.desktop }}
+    steps:
+      - id: ver
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_DESKTOP: ${{ inputs.include_desktop_hosts }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+            DESKTOP="$INPUT_DESKTOP"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            DESKTOP=true
+          fi
+          case "$TAG" in v*) ;; *) echo "tag must start with v" >&2; exit 1 ;; esac
+          if [ "$PRIVATE" = "true" ]; then
+            DESKTOP=false
+            echo "Private repo: skipping macOS/Windows hosted runners (free-minute cost)."
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "desktop=$DESKTOP" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            label: x86_64
+          - platform: linux/arm64
+            label: arm64
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Linux ${{ matrix.label }}
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash scripts/release/build-linux-docker.sh
+          BIN="artifacts/release/dup-finder-linux-${{ matrix.label }}"
+          test -x "$BIN"
+          bash scripts/release/sbom-syft.sh || true
+          BIN="$BIN" VERSION="$VERSION" bash scripts/release/package-deb.sh
+          BIN="$BIN" VERSION="$VERSION" bash scripts/release/package-rpm.sh
+          PLATFORM="$PLATFORM" VERSION="$VERSION" bash scripts/release/package-appimage.sh || true
+          ls -la artifacts/release/
+      - uses: actions/upload-artifact@v5
+        with:
+          name: linux-${{ matrix.label }}
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    needs: resolve
+    if: needs.resolve.outputs.desktop == 'true'
+    runs-on: macos-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-
-      - name: Resolve version
-        id: ver
+          node-version: "22"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI (macOS)
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
-          case "$TAG" in
-            v*) ;;
-            *) echo "tag must start with v (got $TAG)" >&2; exit 1 ;;
+          cargo build -p dup-finder-cli --release
+          mkdir -p artifacts/release
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            arm64|aarch64) LABEL=arm64 ;;
+            x86_64) LABEL=x86_64 ;;
+            *) LABEL="$ARCH" ;;
           esac
-          VERSION="${TAG#v}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          cp "target/release/dup-finder" "artifacts/release/dup-finder-macos-${LABEL}"
+          chmod +x "artifacts/release/dup-finder-macos-${LABEL}"
+          (cd artifacts/release && shasum -a 256 "dup-finder-macos-${LABEL}" > "SHA256SUMS-macos-${LABEL}")
+          ls -la artifacts/release/
+      - name: Build Tauri app (best-effort)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm --prefix ui ci
+          npm --prefix ui run build
+          cargo install tauri-cli --version "^2" --locked
+          (cd src-tauri && cargo tauri build)
+          mkdir -p artifacts/release/macos-bundle
+          cp -R src-tauri/target/release/bundle/* artifacts/release/macos-bundle/ || true
+          ls -laR artifacts/release/macos-bundle || true
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macos
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Build Linux binary + checksums
-        run: bash scripts/release/build-linux-docker.sh
+  windows:
+    needs: resolve
+    if: needs.resolve.outputs.desktop == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI (Windows)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build -p dup-finder-cli --release
+          mkdir -p artifacts/release
+          cp target/release/dup-finder.exe artifacts/release/dup-finder-windows-x86_64.exe
+          (cd artifacts/release && sha256sum dup-finder-windows-x86_64.exe > SHA256SUMS-windows-x86_64)
+          ls -la artifacts/release/
+      - name: Build Tauri app (best-effort)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix ui ci
+          npm --prefix ui run build
+          cargo install tauri-cli --version "^2" --locked
+          (cd src-tauri && cargo tauri build)
+          mkdir -p artifacts/release/windows-bundle
+          cp -R src-tauri/target/release/bundle/* artifacts/release/windows-bundle/ || true
+          ls -laR artifacts/release/windows-bundle || true
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: SBOM (syft)
-        run: bash scripts/release/sbom-syft.sh
+  publish:
+    needs: [resolve, linux, macos, windows]
+    if: always() && needs.resolve.result == 'success' && needs.linux.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: gathered
+      - name: Assemble release tree
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release artifacts/dist
+          # Each uploaded artifact is gathered/<name>/...
+          for dir in gathered/*/; do
+            [ -d "$dir" ] || continue
+            name="$(basename "$dir")"
+            while IFS= read -r -d '' f; do
+              rel="${f#"$dir"}"
+              case "$rel" in
+                SHA256SUMS|SHA256SUMS-*) continue ;;
+              esac
+              # Nested bundles keep platform prefix; flat packages share release/
+              if [[ "$rel" == */* ]]; then
+                dest="artifacts/release/${name}/${rel}"
+              else
+                dest="artifacts/release/${rel}"
+              fi
+              mkdir -p "$(dirname "$dest")"
+              cp "$f" "$dest"
+            done < <(find "$dir" -type f -print0)
+          done
+          (
+            cd artifacts/release
+            find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name 'NOTICE.txt' \
+              | sed 's|^\./||' | sort \
+              | while read -r f; do shasum -a 256 "$f"; done > SHA256SUMS
+          )
+          VERSION="$VERSION" bash scripts/release/make-dist.sh || true
+          echo "=== release tree ==="
+          find artifacts -type f | sort
 
-      - name: Package deb
-        run: bash scripts/release/package-deb.sh
-
-      - name: Package rpm
-        run: bash scripts/release/package-rpm.sh
-
-      - name: Package AppImage (best-effort)
-        run: bash scripts/release/package-appimage.sh || echo "AppImage pack skipped"
-
-      - name: Dist tarball
-        run: bash scripts/release/make-dist.sh || true
-
-      - name: List artifacts
-        run: ls -la artifacts/release/ artifacts/dist/ 2>/dev/null || ls -la artifacts/release/
-
-      - name: Create GitHub Release
+      - name: Create / update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ver.outputs.tag }}
-          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           NOTES="$(mktemp)"
           {
             echo "## Dup Finder ${TAG}"
             echo
-            echo "Linux packages from free \`ubuntu-latest\` CI (no paid runners)."
+            echo "Multi-platform packages from **free** GitHub-hosted runners (no paid features)."
             echo
-            echo "### Contents"
-            echo "- CLI binary (\`dup-finder-linux-*\`)"
-            echo "- \`.deb\` / \`.rpm\` when produced"
-            echo "- SHA256SUMS + SBOM files when present"
-            echo "- Optional AppImage / dist tarball"
+            echo "### Linux (ubuntu-latest)"
+            echo "- \`dup-finder-linux-x86_64\` / \`dup-finder-linux-arm64\`"
+            echo "- \`.deb\` (\`amd64\`, \`arm64\`) and \`.rpm\` (\`x86_64\`, \`aarch64\`) when present"
+            echo "- AppDir / dist tarball when present"
             echo
-            echo "Verify: \`shasum -a 256 -c SHA256SUMS\`"
+            echo "### macOS / Windows (free hosted; public repo)"
+            echo "- \`dup-finder-macos-*\` CLI"
+            echo "- \`dup-finder-windows-x86_64.exe\` CLI"
+            echo "- Tauri GUI bundles when the best-effort desktop build succeeds"
             echo
-            echo "Source: docs in the repo (\`docs/\`, \`AGENTS.md\`). Wiki is not used."
+            echo "Verify top-level files: \`shasum -a 256 -c SHA256SUMS\`"
+            echo
+            echo "Docs live in-repo (\`docs/\`). Wiki is disabled."
           } > "$NOTES"
-          # Attach everything under artifacts/release (and dist if present)
           mapfile -t FILES < <(find artifacts/release artifacts/dist -type f 2>/dev/null | sort)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "no release files" >&2
@@ -100,17 +267,17 @@ jobs:
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release edit "$TAG" --notes-file "$NOTES" --title "Dup Finder ${TAG}"
           else
-            # Tag already exists on tag-push; workflow_dispatch must pass an existing tag.
             gh release create "$TAG" "${FILES[@]}" \
               --title "Dup Finder ${TAG}" \
               --notes-file "$NOTES"
           fi
 
-      - name: Publish container to GHCR (free for public)
+      - name: Publish Linux images to GHCR
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
-          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -119,3 +286,4 @@ jobs:
           docker push "${IMAGE}:${VERSION}"
           docker push "${IMAGE}:${TAG}"
           docker push "${IMAGE}:latest"
+          echo "If pulls fail with denied: set package visibility to Public under GitHub → Packages → dup-finder."

@@ -48,7 +48,7 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Cosign / sigstore (P-06) | Signing secrets in CI |
 | Branch protection + required checks | Repo admin |
 | Cosign / signed provenance | Free Actions OK; needs optional signing secrets |
-| macOS/Windows GitHub Release assets | From `desktop-host.yml` then attach manually / extend release.yml |
+| macOS/Windows Tauri GUI in Releases | Best-effort in `release.yml`; CLI assets always preferred |
 
 ## Free GitHub publishing (policy)
 

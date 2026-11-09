@@ -41,10 +41,11 @@ safe_rm_stage() {
 
 safe_rm_stage "${STAGE}"
 mkdir -p "${STAGE}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+VERSION="${VERSION:-0.1.0}"
 cp "${BIN}" "${STAGE}/SOURCES/dup-finder"
 cat > "${STAGE}/SPECS/dup-finder.spec" <<EOF
 Name:           dup-finder
-Version:        0.1.0
+Version:        ${VERSION}
 Release:        1%{?dist}
 Summary:        Content-duplicate finder with fail-closed safe delete
 License:        MIT

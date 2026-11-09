@@ -20,8 +20,9 @@ if [[ -z "${BIN}" || ! -x "${BIN}" ]]; then
   exit 1
 fi
 
+VERSION="${VERSION:-0.1.0}"
 DEB_ARCH="$(python3 "${ROOT}/scripts/release/elf-arch.py" "${BIN}" --format deb)"
-DEB="${OUT}/dup-finder_0.1.0_${DEB_ARCH}.deb"
+DEB="${OUT}/dup-finder_${VERSION}_${DEB_ARCH}.deb"
 python3 "${ROOT}/scripts/release/write-deb.py" \
-  --bin "${BIN}" --out "${DEB}" --arch "${DEB_ARCH}" --version 0.1.0
+  --bin "${BIN}" --out "${DEB}" --arch "${DEB_ARCH}" --version "${VERSION}"
 ls -la "${DEB}"
