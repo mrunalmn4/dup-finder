@@ -66,7 +66,8 @@ jobs:
   linux:
     needs: resolve
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # arm64 via qemu is slow but still free; keep a hard cap so the release cannot hang.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Set up QEMU
+        if: matrix.platform != 'linux/amd64'
         uses: docker/setup-qemu-action@v3
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -102,16 +104,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # CLI only here — Tauri GUI is manual via desktop-host.yml (avoids 60m+ hangs).
   macos:
     needs: resolve
     if: needs.resolve.outputs.desktop == 'true'
     runs-on: macos-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Build CLI (macOS)
@@ -129,17 +129,6 @@ jobs:
           chmod +x "artifacts/release/dup-finder-macos-${LABEL}"
           (cd artifacts/release && shasum -a 256 "dup-finder-macos-${LABEL}" > "SHA256SUMS-macos-${LABEL}")
           ls -la artifacts/release/
-      - name: Build Tauri app (best-effort)
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          npm --prefix ui ci
-          npm --prefix ui run build
-          cargo install tauri-cli --version "^2" --locked
-          (cd src-tauri && cargo tauri build)
-          mkdir -p artifacts/release/macos-bundle
-          cp -R src-tauri/target/release/bundle/* artifacts/release/macos-bundle/ || true
-          ls -laR artifacts/release/macos-bundle || true
       - uses: actions/upload-artifact@v5
         with:
           name: macos
@@ -151,12 +140,9 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.desktop == 'true'
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Build CLI (Windows)
@@ -168,18 +154,6 @@ jobs:
           cp target/release/dup-finder.exe artifacts/release/dup-finder-windows-x86_64.exe
           (cd artifacts/release && sha256sum dup-finder-windows-x86_64.exe > SHA256SUMS-windows-x86_64)
           ls -la artifacts/release/
-      - name: Build Tauri app (best-effort)
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm --prefix ui ci
-          npm --prefix ui run build
-          cargo install tauri-cli --version "^2" --locked
-          (cd src-tauri && cargo tauri build)
-          mkdir -p artifacts/release/windows-bundle
-          cp -R src-tauri/target/release/bundle/* artifacts/release/windows-bundle/ || true
-          ls -laR artifacts/release/windows-bundle || true
       - uses: actions/upload-artifact@v5
         with:
           name: windows
@@ -254,7 +228,7 @@ jobs:
             echo "### macOS / Windows (free hosted; public repo)"
             echo "- \`dup-finder-macos-*\` CLI"
             echo "- \`dup-finder-windows-x86_64.exe\` CLI"
-            echo "- Tauri GUI bundles when the best-effort desktop build succeeds"
+            echo "- Tauri GUI (\`.dmg\` / MSI): run workflow \`desktop-host\` manually (not in this job — avoids long hangs)"
             echo
             echo "Verify top-level files: \`shasum -a 256 -c SHA256SUMS\`"
             echo
