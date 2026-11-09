@@ -194,12 +194,21 @@ jobs:
           BUNDLE_DIR: src-tauri/target/release/bundle
           RELEASE_DIR: src-tauri/target/release
         run: bash scripts/desktop/smoke-bundle.sh
-      - name: Stage Tauri bundle into artifacts
+      - name: Stage Tauri installers into artifacts
         if: needs.resolve.outputs.tauri == 'true'
         run: |
           set -euo pipefail
-          mkdir -p artifacts/release/macos-bundle
-          cp -R src-tauri/target/release/bundle/. artifacts/release/macos-bundle/
+          # Only ship installers with unique names (do not dump whole bundle tree).
+          DMG="$(find src-tauri/target/release/bundle -type f -name '*.dmg' | head -n 1 || true)"
+          APP="$(find src-tauri/target/release/bundle -type d -name '*.app' | head -n 1 || true)"
+          test -n "$DMG" || test -n "$APP" || { echo "no macOS installer found" >&2; exit 1; }
+          if [ -n "$DMG" ]; then
+            cp "$DMG" "artifacts/release/Dup-Finder-macos-${label}.dmg"
+          fi
+          if [ -n "$APP" ]; then
+            ditto -c -k --keepParent "$APP" "artifacts/release/Dup-Finder-macos-${label}.app.zip"
+          fi
+          ls -la artifacts/release/
       - uses: actions/upload-artifact@v7
         with:
           name: macos
@@ -256,13 +265,20 @@ jobs:
           BUNDLE_DIR: src-tauri/target/release/bundle
           RELEASE_DIR: src-tauri/target/release
         run: bash scripts/desktop/smoke-bundle.sh
-      - name: Stage Tauri bundle into artifacts
+      - name: Stage Tauri installers into artifacts
         if: needs.resolve.outputs.tauri == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts/release/windows-bundle
-          cp -R src-tauri/target/release/bundle/. artifacts/release/windows-bundle/
+          MSI="$(find src-tauri/target/release/bundle -type f -name '*.msi' | head -n 1 || true)"
+          NSIS="$(find src-tauri/target/release/bundle -type f -name '*setup*.exe' | head -n 1 || true)"
+          if [ -z "$NSIS" ]; then
+            NSIS="$(find src-tauri/target/release/bundle/nsis -type f -name '*.exe' 2>/dev/null | head -n 1 || true)"
+          fi
+          test -n "$MSI" || test -n "$NSIS" || { echo "no Windows installer found" >&2; exit 1; }
+          [ -n "$MSI" ] && cp "$MSI" artifacts/release/Dup-Finder-windows-x86_64.msi
+          [ -n "$NSIS" ] && cp "$NSIS" artifacts/release/Dup-Finder-windows-x86_64-setup.exe
+          ls -la artifacts/release/
       - uses: actions/upload-artifact@v7
         with:
           name: windows
@@ -341,7 +357,8 @@ jobs:
             echo "- \`dup-finder-macos-*\` CLI"
             echo "- \`dup-finder-windows-x86_64.exe\` CLI"
             if [ "$TAURI" = "true" ]; then
-              echo "- Tauri GUI under \`macos/macos-bundle/\` and \`windows/windows-bundle/\` (\`.app\`/\`.dmg\`, MSI/NSIS)"
+              echo "- \`Dup-Finder-macos-*.dmg\` / \`.app.zip\`"
+              echo "- \`Dup-Finder-windows-x86_64.msi\` / \`-setup.exe\`"
             else
               echo "- Tauri GUI skipped this run (\`include_tauri=false\` or private repo)"
             fi
@@ -352,7 +369,21 @@ jobs:
             echo
             echo "Docs live in-repo (\`docs/\`). Wiki is disabled."
           } > "$NOTES"
-          mapfile -t FILES < <(find artifacts/release artifacts/dist -type f 2>/dev/null | sort)
+          # Flat unique basenames only — avoids GitHub asset name collisions from nested bundles.
+          STAGE="$(mktemp -d)"
+          while IFS= read -r -d '' f; do
+            base="$(basename "$f")"
+            case "$base" in
+              SHA256SUMS|SHA256SUMS-*) continue ;;
+            esac
+            dest="$STAGE/$base"
+            if [ -e "$dest" ]; then
+              echo "duplicate basename skipped: $f" >&2
+              continue
+            fi
+            cp "$f" "$dest"
+          done < <(find artifacts/release artifacts/dist -type f -print0 2>/dev/null)
+          mapfile -t FILES < <(find "$STAGE" -type f | sort)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "no release files" >&2
             exit 1
