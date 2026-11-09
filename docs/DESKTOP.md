@@ -13,11 +13,8 @@ The React UI in `ui/` runs in two modes:
 ## Dev on a Mac with tooling installed
 
 ```bash
-# Terminal A
+# From repo root (Tauri hooks run with cwd = repo root)
 npm --prefix ui install
-npm --prefix ui run dev
-
-# Terminal B (requires Rust + Tauri system deps)
 cargo install tauri-cli --version "^2"
 cd src-tauri && cargo tauri dev
 ```

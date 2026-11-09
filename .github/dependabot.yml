@@ -1,13 +1,8 @@
 version: 2
 updates:
+  # Workspace Cargo.toml + lock only (src-tauri is excluded from the workspace).
   - package-ecosystem: cargo
     directory: "/"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-
-  - package-ecosystem: cargo
-    directory: "/src-tauri"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
