@@ -46,9 +46,20 @@ See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) 
 | Windows MSI | Windows runner + Tauri — use `desktop-host.yml` |
 | Tauri GUI AppImage | Linux GUI runner / Tauri bundle |
 | Cosign / sigstore (P-06) | Signing secrets in CI |
-| Release tag upload | Tag + release workflow after `origin` push |
 | Branch protection + required checks | Repo admin |
-| Cosign in CI | Free Actions OK; needs signing secrets (not free infra — optional) |
+| Cosign / signed provenance | Free Actions OK; needs optional signing secrets |
+| macOS/Windows GitHub Release assets | From `desktop-host.yml` then attach manually / extend release.yml |
+
+## Free GitHub publishing (policy)
+
+| Surface | Status | Notes |
+|---------|--------|-------|
+| Actions artifacts | Yes (CI) | Temporary (~14 days); not a release channel |
+| **GitHub Releases + tags** | `release.yml` on `v*` | Free for public; durable downloads |
+| **GHCR** (`ghcr.io/.../dup-finder`) | `release.yml` | Free for public packages |
+| Wiki | **Not used** | Docs stay in-repo (`docs/`) — avoid duplicate free wiki |
+| GitHub Pages | Not required | Optional later; free for public |
+| Paid Actions / larger runners | **Never** | ubuntu-latest only by default |
 
 ## Free runner policy (locked)
 

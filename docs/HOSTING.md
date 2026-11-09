@@ -22,9 +22,12 @@ Rough GitHub Free private-repo budget is billed as included **$** of compute (th
 | Workflow | Runner | When |
 |----------|--------|------|
 | `ci.yml` | `ubuntu-latest` | Every push/PR (tests); release-smoke on `main` push |
+| `release.yml` | `ubuntu-latest` | Tag `v*` → GitHub Release assets + GHCR image |
 | `desktop-host.yml` | `macos-latest` / `windows-latest` | Manual only; **blocked on private** unless `force_private` |
 
 No larger runners, no GPU, no self-hosted. Prefer a **public** repo so standard hosted minutes stay free.
+
+**Publishing:** use **Releases + tags + GHCR**. Do not use Wiki (docs live in `docs/`). CI artifacts alone are not a publish channel (they expire).
 
 ## Next step
 

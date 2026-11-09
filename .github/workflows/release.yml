@@ -1,0 +1,121 @@
+# Free-tier GitHub Release + GHCR publish (public repos: standard runners free).
+# Trigger: push tag v* (e.g. v0.1.0). No paid runners, no cosign (optional later).
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish (e.g. v0.1.0)
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "tag must start with v (got $TAG)" >&2; exit 1 ;;
+          esac
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build Linux binary + checksums
+        run: bash scripts/release/build-linux-docker.sh
+
+      - name: SBOM (syft)
+        run: bash scripts/release/sbom-syft.sh
+
+      - name: Package deb
+        run: bash scripts/release/package-deb.sh
+
+      - name: Package rpm
+        run: bash scripts/release/package-rpm.sh
+
+      - name: Package AppImage (best-effort)
+        run: bash scripts/release/package-appimage.sh || echo "AppImage pack skipped"
+
+      - name: Dist tarball
+        run: bash scripts/release/make-dist.sh || true
+
+      - name: List artifacts
+        run: ls -la artifacts/release/ artifacts/dist/ 2>/dev/null || ls -la artifacts/release/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES="$(mktemp)"
+          {
+            echo "## Dup Finder ${TAG}"
+            echo
+            echo "Linux packages from free \`ubuntu-latest\` CI (no paid runners)."
+            echo
+            echo "### Contents"
+            echo "- CLI binary (\`dup-finder-linux-*\`)"
+            echo "- \`.deb\` / \`.rpm\` when produced"
+            echo "- SHA256SUMS + SBOM files when present"
+            echo "- Optional AppImage / dist tarball"
+            echo
+            echo "Verify: \`shasum -a 256 -c SHA256SUMS\`"
+            echo
+            echo "Source: docs in the repo (\`docs/\`, \`AGENTS.md\`). Wiki is not used."
+          } > "$NOTES"
+          # Attach everything under artifacts/release (and dist if present)
+          mapfile -t FILES < <(find artifacts/release artifacts/dist -type f 2>/dev/null | sort)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "no release files" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+          else
+            # Tag already exists on tag-push; workflow_dispatch must pass an existing tag.
+            gh release create "$TAG" "${FILES[@]}" \
+              --title "Dup Finder ${TAG}" \
+              --notes-file "$NOTES"
+          fi
+
+      - name: Publish container to GHCR (free for public)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${{ github.repository_owner }}/dup-finder"
+          docker build -f docker/Dockerfile.release -t "${IMAGE}:${VERSION}" -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:latest"
