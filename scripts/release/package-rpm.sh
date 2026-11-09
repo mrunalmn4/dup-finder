@@ -27,7 +27,19 @@ case "${RPM_ARCH}" in
 esac
 
 STAGE="${OUT}/rpmbuild-${RPM_ARCH}"
-rm -rf "${STAGE}"
+
+# Docker rpmbuild writes as root on the bind mount; plain rm fails on GHA Linux.
+safe_rm_stage() {
+  local path="$1"
+  [[ -e "${path}" ]] || return 0
+  if rm -rf "${path}" 2>/dev/null; then
+    return 0
+  fi
+  docker run --rm -v "${OUT}:/out" alpine:3.20 \
+    rm -rf "/out/$(basename "${path}")"
+}
+
+safe_rm_stage "${STAGE}"
 mkdir -p "${STAGE}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 cp "${BIN}" "${STAGE}/SOURCES/dup-finder"
 cat > "${STAGE}/SPECS/dup-finder.spec" <<EOF
@@ -57,7 +69,9 @@ if [[ ${#RPMS[@]} -eq 0 ]]; then
   echo "rpmbuild produced no packages under RPMS/${RPM_ARCH}" >&2
   exit 1
 fi
-cp "${RPMS[@]}" "${OUT}/"
-rm -rf "${STAGE}"
+# Copy then fix ownership so the host can keep the .rpm and delete the stage tree.
+docker run --rm -v "${STAGE}:/stage" -v "${OUT}:/out" alpine:3.20 \
+  sh -lc "cp /stage/RPMS/${RPM_ARCH}/*.rpm /out/ && chown -R $(id -u):$(id -g) /out/*.rpm /stage"
+safe_rm_stage "${STAGE}"
 echo "RPM packages in ${OUT}:"
 ls -la "${OUT}"/*.rpm
