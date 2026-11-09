@@ -24,7 +24,8 @@ Desktop (Tauri) needs host Rust + platform WebView deps — see [docs/DESKTOP.md
 
 ## Releases
 
-Maintainers: run `bash scripts/release/checklist.sh vX.Y.Z`, then tag. CI publishes via `.github/workflows/release.yml` (build once → smoke → GitHub Release + GHCR).
+Maintainers: follow [docs/RELEASING.md](docs/RELEASING.md).  
+Short path: `bash scripts/release/checklist.sh vX.Y.Z`, then annotated tag + push. Never move a public tag; cut a new version instead.
 
 ## Code of conduct
 

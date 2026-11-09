@@ -71,12 +71,14 @@ Desktop shell: [docs/DESKTOP.md](docs/DESKTOP.md). Packaging: [docs/PACKAGING.md
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Durable product decisions |
 | [docs/PENDING.md](docs/PENDING.md) | What’s left |
 | [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | Required CI checks for `main` |
+| [docs/RELEASING.md](docs/RELEASING.md) | Tags, checklist, republish rules |
 | [AGENTS.md](AGENTS.md) | Notes for automated agents |
 
 ## Releases
 
-Maintainers: `bash scripts/release/checklist.sh vX.Y.Z`, then push the tag.  
-Pipeline: **quality gate → build once per platform → smoke → GitHub Release + GHCR** (see `.github/workflows/release.yml`).
+See **[docs/RELEASING.md](docs/RELEASING.md)** (tag = source of truth).  
+Short path: `bash scripts/release/checklist.sh vX.Y.Z`, then annotated tag + push.  
+Pipeline: **quality gate → build once per platform → smoke → GitHub Release + GHCR**.
 
 ## License
 

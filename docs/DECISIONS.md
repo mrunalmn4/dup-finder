@@ -55,3 +55,4 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-09 | Tauri on tag release | macOS/Windows Tauri in `release.yml` when `include_tauri=true` (default); hard timeouts; smoke-bundle required; `desktop-host.yml` = GUI debug only |
 | 2026-11-09 | src-tauri workspace | Root `workspace.exclude` + empty `[workspace]` in `src-tauri/Cargo.toml` |
 | 2026-11-09 | OSS surface | MIT LICENSE + SECURITY/CONTRIBUTING/CoC/SUPPORT/CHANGELOG + issue/PR templates + Dependabot + CODEOWNERS + BRANCH_PROTECTION doc |
+| 2026-11-09 | Tag discipline | Tag commit == release bits; never move public tags; `release.yml` checks out `ref=<tag>`; dispatch only rebuilds that tag; new work → new semver (`docs/RELEASING.md`) |

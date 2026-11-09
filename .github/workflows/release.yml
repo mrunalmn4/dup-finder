@@ -1,7 +1,8 @@
 # Build once per platform → smoke those artifacts → publish (no second compile).
 # Free-tier: standard hosted runners only. No cosign (optional later).
 #
-# Tag v* (or workflow_dispatch): quality gate → linux/mac/win matrix → GitHub Release + GHCR.
+# Tag push v* (preferred) or workflow_dispatch to rebuild an *existing* tag.
+# Every job checks out ref=<tag> so assets always match the Git tag (see docs/RELEASING.md).
 # Tauri GUI included when include_tauri=true (default). CLI-only hotfix: set include_tauri=false.
 
 name: release
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to (re)publish (e.g. v0.1.0)
+        description: Existing Git tag to rebuild (must already exist; does not use main tip)
         required: true
         type: string
       include_desktop_hosts:
@@ -83,6 +84,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - name: Fixture check
         run: docker compose run --rm fixtures
       - name: Keep-rules contract
@@ -108,6 +111,8 @@ jobs:
             label: arm64
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - name: Set up QEMU
         if: matrix.platform != 'linux/amd64'
         uses: docker/setup-qemu-action@v4
@@ -147,6 +152,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -223,6 +230,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -298,6 +307,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - name: Download all platform artifacts
         uses: actions/download-artifact@v8
         with:

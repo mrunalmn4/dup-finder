@@ -62,9 +62,14 @@ if [ -f src-tauri/tauri.conf.json ] && [ -n "$VERSION" ]; then
   fi
 fi
 
+if [ -n "$TAG" ] && git rev-parse "$TAG" >/dev/null 2>&1; then
+  bad "tag $TAG already exists locally — cut a new version; never move public tags"
+fi
+
 echo
 echo "Manual: confirm Actions CI (job 'test') is green on the commit you will tag."
 echo "Tag + push: git tag -a ${TAG:-vX.Y.Z} -m 'Dup Finder ${TAG:-vX.Y.Z}' && git push origin ${TAG:-vX.Y.Z}"
-echo "Pipeline: quality-gate → build once → smoke → GitHub Release + GHCR."
+echo "Do not force-update existing tags. Republish = workflow_dispatch on the same tag (checks out that tag)."
+echo "Pipeline: quality-gate → build once → smoke → GitHub Release + GHCR. See docs/RELEASING.md."
 
 exit "$fail"
