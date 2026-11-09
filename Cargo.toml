@@ -5,6 +5,8 @@ members = [
     "crates/dup-finder-app",
     "crates/dup-finder-cli",
 ]
+# Tauri shell stays out of the workspace (WebKit / host-only deps).
+exclude = ["src-tauri"]
 default-members = [
     "crates/dup-finder-engine",
     "crates/dup-finder-app",

@@ -1,8 +1,8 @@
-# Free-tier multi-platform publish (public repo → standard hosted runners are free).
-# - Linux amd64 + arm64 (ubuntu-latest + buildx/qemu)
-# - macOS + Windows CLI (macos-latest / windows-latest; skipped on private unless forced)
-# - GitHub Release assets + GHCR (linux amd64 image; multi-arch when both build)
-# No larger/GPU/self-hosted runners. No cosign (optional later).
+# Build once per platform → smoke those artifacts → publish (no second compile).
+# Free-tier: standard hosted runners only. No cosign (optional later).
+#
+# Tag v* (or workflow_dispatch): quality gate → linux/mac/win matrix → GitHub Release + GHCR.
+# Tauri GUI included when include_tauri=true (default). CLI-only hotfix: set include_tauri=false.
 
 name: release
 
@@ -17,7 +17,12 @@ on:
         required: true
         type: string
       include_desktop_hosts:
-        description: Build macOS/Windows CLI on free hosted runners
+        description: Build macOS/Windows on free hosted runners
+        required: true
+        type: boolean
+        default: true
+      include_tauri:
+        description: Build + smoke Tauri GUI (.app/.dmg / MSI) on macOS/Windows
         required: true
         type: boolean
         default: true
@@ -38,35 +43,60 @@ jobs:
       tag: ${{ steps.ver.outputs.tag }}
       version: ${{ steps.ver.outputs.version }}
       desktop: ${{ steps.ver.outputs.desktop }}
+      tauri: ${{ steps.ver.outputs.tauri }}
     steps:
       - id: ver
         env:
           EVENT: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_DESKTOP: ${{ inputs.include_desktop_hosts }}
+          INPUT_TAURI: ${{ inputs.include_tauri }}
           PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = "workflow_dispatch" ]; then
             TAG="$INPUT_TAG"
             DESKTOP="$INPUT_DESKTOP"
+            TAURI="$INPUT_TAURI"
           else
             TAG="${GITHUB_REF_NAME}"
             DESKTOP=true
+            TAURI=true
           fi
           case "$TAG" in v*) ;; *) echo "tag must start with v" >&2; exit 1 ;; esac
           if [ "$PRIVATE" = "true" ]; then
             DESKTOP=false
+            TAURI=false
             echo "Private repo: skipping macOS/Windows hosted runners (free-minute cost)."
+          fi
+          if [ "$DESKTOP" != "true" ]; then
+            TAURI=false
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "desktop=$DESKTOP" >> "$GITHUB_OUTPUT"
+          echo "tauri=$TAURI" >> "$GITHUB_OUTPUT"
 
-  linux:
+  quality-gate:
     needs: resolve
     runs-on: ubuntu-latest
-    # arm64 via qemu is slow but still free; keep a hard cap so the release cannot hang.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fixture check
+        run: docker compose run --rm fixtures
+      - name: Keep-rules contract
+        run: node docker/test/keep_rules_test.mjs
+      - name: Session logic
+        run: node docker/test/session_logic_test.mjs
+      - name: Rust tests
+        run: docker compose run --rm rust-test
+      - name: UI build
+        run: docker compose run --rm ui bash -lc "npm install && npm run build"
+
+  linux:
+    needs: [resolve, quality-gate]
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -97,6 +127,12 @@ jobs:
           BIN="$BIN" VERSION="$VERSION" bash scripts/release/package-rpm.sh
           PLATFORM="$PLATFORM" VERSION="$VERSION" bash scripts/release/package-appimage.sh || true
           ls -la artifacts/release/
+      - name: Smoke Linux CLI
+        # Native amd64 only — arm64 binary is qemu-built and may be slow to exec here.
+        if: matrix.label == 'x86_64'
+        env:
+          BIN: artifacts/release/dup-finder-linux-x86_64
+        run: bash scripts/release/smoke-cli.sh
       - uses: actions/upload-artifact@v5
         with:
           name: linux-${{ matrix.label }}
@@ -104,16 +140,24 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # CLI only here — Tauri GUI is manual via desktop-host.yml (avoids 60m+ hangs).
   macos:
-    needs: resolve
+    needs: [resolve, quality-gate]
     if: needs.resolve.outputs.desktop == 'true'
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Engine/app unit tests (host)
+        run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: Build CLI (macOS)
         run: |
           set -euo pipefail
@@ -125,10 +169,37 @@ jobs:
             x86_64) LABEL=x86_64 ;;
             *) LABEL="$ARCH" ;;
           esac
+          echo "label=$LABEL" >> "$GITHUB_ENV"
           cp "target/release/dup-finder" "artifacts/release/dup-finder-macos-${LABEL}"
           chmod +x "artifacts/release/dup-finder-macos-${LABEL}"
           (cd artifacts/release && shasum -a 256 "dup-finder-macos-${LABEL}" > "SHA256SUMS-macos-${LABEL}")
-          ls -la artifacts/release/
+      - name: Smoke macOS CLI
+        run: |
+          set -euo pipefail
+          BIN="$(ls artifacts/release/dup-finder-macos-* | head -n 1)"
+          BIN="$BIN" bash scripts/release/smoke-cli.sh
+      - name: UI build
+        if: needs.resolve.outputs.tauri == 'true'
+        run: npm --prefix ui ci && npm --prefix ui run build
+      - name: Tauri build (macOS)
+        if: needs.resolve.outputs.tauri == 'true'
+        working-directory: src-tauri
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo tauri build
+      - name: Smoke macOS Tauri bundle
+        if: needs.resolve.outputs.tauri == 'true'
+        env:
+          PLATFORM: macos
+          BUNDLE_DIR: src-tauri/target/release/bundle
+          RELEASE_DIR: src-tauri/target/release
+        run: bash scripts/desktop/smoke-bundle.sh
+      - name: Stage Tauri bundle into artifacts
+        if: needs.resolve.outputs.tauri == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release/macos-bundle
+          cp -R src-tauri/target/release/bundle/. artifacts/release/macos-bundle/
       - uses: actions/upload-artifact@v5
         with:
           name: macos
@@ -137,14 +208,23 @@ jobs:
           retention-days: 14
 
   windows:
-    needs: resolve
+    needs: [resolve, quality-gate]
     if: needs.resolve.outputs.desktop == 'true'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target | src-tauri -> src-tauri/target"
+      - name: Engine/app unit tests (host)
+        run: cargo test -p dup-finder-app -p dup-finder-engine --release
       - name: Build CLI (Windows)
         shell: bash
         run: |
@@ -153,7 +233,36 @@ jobs:
           mkdir -p artifacts/release
           cp target/release/dup-finder.exe artifacts/release/dup-finder-windows-x86_64.exe
           (cd artifacts/release && sha256sum dup-finder-windows-x86_64.exe > SHA256SUMS-windows-x86_64)
-          ls -la artifacts/release/
+      - name: Smoke Windows CLI
+        shell: bash
+        env:
+          BIN: artifacts/release/dup-finder-windows-x86_64.exe
+        run: bash scripts/release/smoke-cli.sh
+      - name: UI build
+        if: needs.resolve.outputs.tauri == 'true'
+        run: npm --prefix ui ci && npm --prefix ui run build
+      - name: Tauri build (Windows)
+        if: needs.resolve.outputs.tauri == 'true'
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo tauri build
+      - name: Smoke Windows Tauri bundle
+        if: needs.resolve.outputs.tauri == 'true'
+        shell: bash
+        env:
+          PLATFORM: windows
+          BUNDLE_DIR: src-tauri/target/release/bundle
+          RELEASE_DIR: src-tauri/target/release
+        run: bash scripts/desktop/smoke-bundle.sh
+      - name: Stage Tauri bundle into artifacts
+        if: needs.resolve.outputs.tauri == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release/windows-bundle
+          cp -R src-tauri/target/release/bundle/. artifacts/release/windows-bundle/
       - uses: actions/upload-artifact@v5
         with:
           name: windows
@@ -162,8 +271,13 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: [resolve, linux, macos, windows]
-    if: always() && needs.resolve.result == 'success' && needs.linux.result == 'success'
+    needs: [resolve, quality-gate, linux, macos, windows]
+    if: |
+      always()
+      && needs.resolve.result == 'success'
+      && needs.quality-gate.result == 'success'
+      && needs.linux.result == 'success'
+      && (needs.resolve.outputs.desktop != 'true' || (needs.macos.result == 'success' && needs.windows.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -178,7 +292,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/release artifacts/dist
-          # Each uploaded artifact is gathered/<name>/...
           for dir in gathered/*/; do
             [ -d "$dir" ] || continue
             name="$(basename "$dir")"
@@ -187,7 +300,6 @@ jobs:
               case "$rel" in
                 SHA256SUMS|SHA256SUMS-*) continue ;;
               esac
-              # Nested bundles keep platform prefix; flat packages share release/
               if [[ "$rel" == */* ]]; then
                 dest="artifacts/release/${name}/${rel}"
               else
@@ -212,25 +324,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.resolve.outputs.tag }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          TAURI: ${{ needs.resolve.outputs.tauri }}
         run: |
           set -euo pipefail
           NOTES="$(mktemp)"
           {
             echo "## Dup Finder ${TAG}"
             echo
-            echo "Multi-platform packages from **free** GitHub-hosted runners (no paid features)."
+            echo "Built once per platform, smoked, then published (no rebuild)."
             echo
-            echo "### Linux (ubuntu-latest)"
+            echo "### Linux"
             echo "- \`dup-finder-linux-x86_64\` / \`dup-finder-linux-arm64\`"
-            echo "- \`.deb\` (\`amd64\`, \`arm64\`) and \`.rpm\` (\`x86_64\`, \`aarch64\`) when present"
-            echo "- AppDir / dist tarball when present"
+            echo "- \`.deb\` / \`.rpm\` / AppDir / dist tarball when present"
             echo
-            echo "### macOS / Windows (free hosted; public repo)"
+            echo "### macOS / Windows"
             echo "- \`dup-finder-macos-*\` CLI"
             echo "- \`dup-finder-windows-x86_64.exe\` CLI"
-            echo "- Tauri GUI (\`.dmg\` / MSI): run workflow \`desktop-host\` manually (not in this job — avoids long hangs)"
+            if [ "$TAURI" = "true" ]; then
+              echo "- Tauri GUI under \`macos/macos-bundle/\` and \`windows/windows-bundle/\` (\`.app\`/\`.dmg\`, MSI/NSIS)"
+            else
+              echo "- Tauri GUI skipped this run (\`include_tauri=false\` or private repo)"
+            fi
             echo
             echo "Verify top-level files: \`shasum -a 256 -c SHA256SUMS\`"
+            echo
+            echo "Container: \`ghcr.io/${{ github.repository_owner }}/dup-finder:${TAG}\`"
             echo
             echo "Docs live in-repo (\`docs/\`). Wiki is disabled."
           } > "$NOTES"

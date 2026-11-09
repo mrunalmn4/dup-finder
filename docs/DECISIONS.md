@@ -51,3 +51,7 @@ Keep this short. Agents should read it instead of re-litigating chat history.
 | 2026-11-08 | Keep rules (UI) | Client re-pick keep: newest_mtime / shortest_path / prefer_folder; does not change engine default suggest |
 | 2026-11-08 | Review keyboard | j/k groups, ↑/↓ candidates, Space toggle, Enter Compare (when not in inputs) |
 | 2026-11-08 | Similar images UX | Confidence from dHash distance; optional select into delete set; fixtures under `similar_photos/` |
+| 2026-11-09 | Build-once release | `ci.yml` = tests only; `release.yml` = quality-gate → per-platform build+smoke → publish same artifacts (no second compile) |
+| 2026-11-09 | Tauri on tag release | macOS/Windows Tauri in `release.yml` when `include_tauri=true` (default); hard timeouts; smoke-bundle required; `desktop-host.yml` = GUI debug only |
+| 2026-11-09 | src-tauri workspace | Root `workspace.exclude` + empty `[workspace]` in `src-tauri/Cargo.toml` |
+| 2026-11-09 | OSS surface | MIT LICENSE + SECURITY/CONTRIBUTING/CoC/SUPPORT/CHANGELOG + issue/PR templates + Dependabot + CODEOWNERS + BRANCH_PROTECTION doc |

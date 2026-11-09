@@ -6,6 +6,9 @@ authors = ["Dup Finder Contributors"]
 edition = "2021"
 license = "MIT"
 
+# Standalone package (also listed in root workspace.exclude).
+[workspace]
+
 [lib]
 name = "dup_finder_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

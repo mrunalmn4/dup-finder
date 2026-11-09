@@ -514,8 +514,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let ok = dir.path().join("ok.txt");
         let bad = dir.path().join("bad.txt");
-        fs::write(&ok, b"readable").unwrap();
-        fs::write(&bad, b"secret").unwrap();
+        // Same size so the hash stage runs (unique sizes never open content).
+        fs::write(&ok, b"same-len").unwrap();
+        fs::write(&bad, b"same-len").unwrap();
         let mut perms = fs::metadata(&bad).unwrap().permissions();
         perms.set_mode(0o000);
         fs::set_permissions(&bad, perms).unwrap();

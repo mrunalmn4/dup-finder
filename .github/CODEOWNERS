@@ -1,0 +1,7 @@
+# Default maintainers for critical paths (adjust as the team grows).
+* @mrunalmn4
+
+/.github/workflows/ @mrunalmn4
+/crates/dup-finder-engine/ @mrunalmn4
+/docs/ @mrunalmn4
+/scripts/release/ @mrunalmn4

@@ -1,71 +1,51 @@
 # Pending (v0.1 → next)
 
-**Local Mac/Docker path is finished** (including OS trash, permanent UI, CLI AppImage). Remaining work needs a git remote or GitHub runners/secrets.
-
-See also: [SCALE.md](SCALE.md) (storage/perf honesty), [HOSTING.md](HOSTING.md) (**prefer GitHub**).
+See also: [SCALE.md](SCALE.md), [HOSTING.md](HOSTING.md), [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md).
 
 **Rule:** do not claim a platform/channel “released” until that channel’s smoke test has passed.
 
-## Finished locally (smoked)
+## Finished (local + GitHub)
 
 | Artifact / check | Evidence |
 |------------------|----------|
-| Linux arm64 + amd64 CLI | `artifacts/release/dup-finder-linux-{arm64,x86_64}` scan fixtures |
-| `.deb` arm64 + amd64 | `dup-finder_0.1.0_{arm64,amd64}.deb` |
-| `.rpm` aarch64 + x86_64 | `dup-finder-0.1.0-1.el9.{aarch64,x86_64}.rpm` |
-| CLI AppImage / AppDir pack | `scripts/release/package-appimage.sh` → `artifacts/release/` |
-| Dist tarball | `artifacts/dist/dup-finder-0.1.0-linux-*.tar.gz` |
-| SBOMs / checksums | `artifacts/release/` |
-| Docker images | `dup-finder:release`, `dup-finder:release-amd64` |
-| API smoke | `docker/test/api_smoke.sh` |
-| S1-03 UI browser UAT | connect → roots → scan → dry-run confirm |
-| Layperson folder UX + onboarding/help | Modes, Review tools, Confirm/Settings covered in Help + tour |
-| Where + What scan filters | Engine `ScanFilters`; UI presets/categories/size; CLI flags |
-| OS trash + permanent UI | `trash` crate with `.dup-finder-trash` fallback; type DELETE for permanent |
-| Async scan + progress | Job API/Tauri/UI bar; CLI `--progress` |
-| Parallel hash | rayon within size buckets |
-| Quarantine restore | list/restore `.dup-finder-trash` via API/UI |
-| Export / profiles / review UX | JSON/CSV; localStorage profiles; sort/filter/view; image previews |
-| Jobs UI + reclaimable notify | Settings jobs panel; Notification threshold in localStorage |
-| Folders setup modes | Simple/Smart/Guided/Advanced chooser; resume wins over gate |
-| Session resume + Review polish | `dup.session.v1`; empty states; quick places; thumbs; quarantine undo toast |
-| Full local test matrix | `docker/test/full_matrix.sh` (fixtures, unit, UI, API, quarantine RT, CLI progress) |
-| Cancel / compare / meta / E2E | Scan cancel; Compare modal; FileMeta; custom checkboxes; Playwright `docker/test/e2e.sh` |
-| Re-verify / theme / similar | Live BLAKE3 re-verify; dark+density; experimental dHash similar images |
-| Keep rules + keyboard + space summary | Newest/shortest/prefer-folder; j/k Review; post-trash freed toast |
-| Similar images select + fixtures | Confidence labels; tick→delete selection; `similar_photos/` PNGs |
-| Help/tour sync + themed checkboxes | Help covers modes/Review/Settings; shared `Checkbox` |
-| Visual E2E shots | Playwright light/dark Help/Review/Confirm → `artifacts/e2e-shots/` |
-| Desktop host workflow stub | `.github/workflows/desktop-host.yml` (workflow_dispatch) |
+| Linux arm64 + amd64 CLI / deb / rpm / AppDir | Local Docker + `release.yml` assets |
+| macOS / Windows CLI on Releases | `release.yml` host jobs + `smoke-cli.sh` |
+| GHCR image | `ghcr.io/mrunalmn4/dup-finder` |
+| Engine/UI/API UAT (Docker) | `docker/test/*`, Playwright shots |
+| OSS kit | LICENSE, SECURITY, CONTRIBUTING, CoC, SUPPORT, CHANGELOG, issue/PR templates, Dependabot, CODEOWNERS |
+| Build-once release | `ci.yml` tests only; `release.yml` quality-gate → build → smoke → publish |
 
-## Explicitly deferred to runners / CI (next phase)
+## In progress / gated by next green release run
 
 | Item | Needs |
 |------|-------|
-| macOS `.app` / `.dmg` (S1-08) | macOS runner + Rust + Tauri — use `desktop-host.yml` |
-| Windows MSI | Windows runner + Tauri — use `desktop-host.yml` |
-| Tauri GUI AppImage | Linux GUI runner / Tauri bundle |
+| macOS `.app` / `.dmg` on Release | `release.yml` with `include_tauri=true` (workspace exclude + smoke landed) |
+| Windows MSI/NSIS on Release | same |
+| Branch protection enforced | Maintainer applies [BRANCH_PROTECTION.md](BRANCH_PROTECTION.md) (require `ci` / `test`) |
+
+## Explicitly deferred
+
+| Item | Needs |
+|------|-------|
+| Tauri GUI AppImage (Linux) | Linux GUI runner / Tauri bundle |
 | Cosign / sigstore (P-06) | Signing secrets in CI |
-| Branch protection + required checks | Repo admin |
-| Cosign / signed provenance | Free Actions OK; needs optional signing secrets |
-| macOS/Windows Tauri GUI in Releases | Best-effort in `release.yml`; CLI assets always preferred |
+| Interactive human GUI UAT | Physical Mac/PC (CI smoke ≠ full UX) |
 
 ## Free GitHub publishing (policy)
 
 | Surface | Status | Notes |
 |---------|--------|-------|
 | Actions artifacts | Yes (CI) | Temporary (~14 days); not a release channel |
-| **GitHub Releases + tags** | `release.yml` on `v*` | Free for public; durable downloads |
-| **GHCR** (`ghcr.io/.../dup-finder`) | `release.yml` | Free for public packages |
-| Wiki | **Not used** | Docs stay in-repo (`docs/`) — avoid duplicate free wiki |
-| GitHub Pages | Not required | Optional later; free for public |
-| Paid Actions / larger runners | **Never** | ubuntu-latest only by default |
+| **GitHub Releases + tags** | `release.yml` on `v*` | Build once → smoke → publish |
+| **GHCR** | `release.yml` | Free for public packages |
+| Wiki | **Not used** | Docs stay in-repo |
+| Paid / larger runners | **Never** | Standard hosted only |
 
 ## Free runner policy (locked)
 
-- Default CI: **`ubuntu-latest` only** (`.github/workflows/ci.yml`)
-- No larger / GPU / self-hosted runners
-- macOS/Windows: **manual** `desktop-host.yml` only; blocked on private repos unless `force_private`
+- Default CI: **`ubuntu-latest` only** (`.github/workflows/ci.yml`) — **tests only**
+- Tag release: Linux + (public) macOS/Windows CLI + Tauri
+- `desktop-host.yml`: manual GUI debug only
 
 ## Org / compliance (not code)
 

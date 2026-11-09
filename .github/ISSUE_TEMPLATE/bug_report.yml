@@ -1,0 +1,53 @@
+name: Bug report
+description: Something is broken or unexpected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do **not** paste private file contents or hashes of sensitive files.
+        Security issues → see SECURITY.md (private reporting).
+  - type: input
+    id: version
+    attributes:
+      label: Version / install
+      description: Release tag, commit, or package (deb/rpm/Docker/ghcr).
+      placeholder: v0.1.0 / ghcr.io/.../dup-finder:v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Docker / other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: 1. … 2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: delete
+    attributes:
+      label: Delete / trash involved?
+      options:
+        - label: This report involves delete, trash, or permanent remove

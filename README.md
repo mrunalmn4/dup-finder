@@ -1,57 +1,69 @@
 # Dup Finder
 
-Cross-platform duplicate file finder: scan chosen locations, detect content duplicates (even when extensions are renamed), show metadata, suggest safe deletes.
+[![CI](https://github.com/mrunalmn4/dup-finder/actions/workflows/ci.yml/badge.svg)](https://github.com/mrunalmn4/dup-finder/actions/workflows/ci.yml)
+[![Release](https://github.com/mrunalmn4/dup-finder/actions/workflows/release.yml/badge.svg)](https://github.com/mrunalmn4/dup-finder/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Status
+Find duplicate files by **content** (BLAKE3), not by name or extension. Scan only the folders you choose, review groups, and remove extras safely (OS trash by default).
 
-**Product stack complete (v0.1):** engine + CLI + resumable index + fail-closed delete + suggest + localhost/`serve` daemon with scheduled jobs + React UI + Tauri shell + Docker release image/packaging scripts. See [docs/QUALITY.md](docs/QUALITY.md), [docs/DESKTOP.md](docs/DESKTOP.md), [docs/PACKAGING.md](docs/PACKAGING.md). **What's left:** [docs/PENDING.md](docs/PENDING.md). Scale/storage: [docs/SCALE.md](docs/SCALE.md). Host: [docs/HOSTING.md](docs/HOSTING.md) (GitHub).
+## Install
 
-## Locked direction
+Download platform packages from the latest [GitHub Release](https://github.com/mrunalmn4/dup-finder/releases):
 
-- **Engine:** Rust (CLI → Tauri GUI → daemon), content hash BLAKE3
-- **Delivery:** portable binary + OS packages + Docker
-- **Safety:** delete only user-selected, re-verified paths (trash default); see [delete safety rule](.cursor/rules/delete-safety.mdc)
-- **Compliance:** enterprise-ready controls + SOC 2 / ISO alignment path
+| Platform | Assets |
+|----------|--------|
+| Linux | `dup-finder-linux-{x86_64,arm64}`, `.deb`, `.rpm`, AppDir/dist tarball |
+| macOS | `dup-finder-macos-*` CLI; Tauri `.app` / `.dmg` under release bundle paths when published |
+| Windows | `dup-finder-windows-x86_64.exe`; MSI/NSIS under release bundle paths when published |
+| Docker | `ghcr.io/mrunalmn4/dup-finder:latest` |
+
+Verify top-level checksums with `SHA256SUMS` in the release.
+
+```bash
+# Example: Linux CLI
+chmod +x dup-finder-linux-x86_64
+./dup-finder-linux-x86_64 scan ~/Pictures -o scan.json
+./dup-finder-linux-x86_64 suggest --from-scan scan.json
+```
+
+## Features
+
+- **Content identity** — size → partial hash → BLAKE3; MIME sniff ignores extension
+- **Safety** — delete only selected paths; re-verify before remove; trash default; permanent needs extra confirm
+- **Surfaces** — CLI, local `serve` API + React UI, Tauri desktop, scheduled jobs
+- **Scale** — streaming walk, resumable on-disk index, parallel workers
+
+## Quick start (Docker / source)
+
+No host Rust required for engine/UI tests:
+
+```bash
+docker compose run --rm fixtures
+docker compose run --rm rust-test
+docker compose up api   # http://127.0.0.1:7420
+docker compose up ui    # http://127.0.0.1:5173
+```
+
+Desktop shell: [docs/DESKTOP.md](docs/DESKTOP.md). Packaging: [docs/PACKAGING.md](docs/PACKAGING.md).
 
 ## Docs
 
-- [AGENTS.md](AGENTS.md) — agent operating guide
-- [docs/DECISIONS.md](docs/DECISIONS.md) — durable decisions
-- Specs under `docs/superpowers/specs/`
+| Doc | Topic |
+|-----|--------|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to develop and open PRs |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting |
+| [SUPPORT.md](SUPPORT.md) | Where to ask for help |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Durable product decisions |
+| [docs/PENDING.md](docs/PENDING.md) | What’s left |
+| [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | Required CI checks for `main` |
+| [AGENTS.md](AGENTS.md) | Notes for automated agents |
 
-## Dev / test (Docker on Mac — no host Rust required)
+## Releases
 
-```bash
-docker compose run --rm fixtures          # golden fixture check
-docker compose run --rm rust-test         # cargo test --workspace
-```
+Maintainers: `bash scripts/release/checklist.sh vX.Y.Z`, then push the tag.  
+Pipeline: **quality gate → build once per platform → smoke → GitHub Release + GHCR** (see `.github/workflows/release.yml`).
 
-```bash
-# Scan fixtures → JSON
-docker compose run --rm rust-test \
-  cargo run -p dup-finder-cli -- scan /app/docker/fixtures \
-  -o /app/artifacts/scan.json --index /app/artifacts/index.sqlite
+## License
 
-# Explainable keep/delete suggestions (never deletes)
-docker compose run --rm rust-test \
-  cargo run -p dup-finder-cli -- suggest --from-scan /app/artifacts/scan.json \
-  -o /app/artifacts/suggest.json
-
-# Dry-run delete (never mutates); permanent requires --mode permanent --confirm
-docker compose run --rm rust-test \
-  cargo run -p dup-finder-cli -- delete --from-scan /app/artifacts/scan.json \
-  --path /app/docker/fixtures/delete_safety/drop_me.txt \
-  --keep /app/docker/fixtures/delete_safety/keep_me.txt \
-  --mode dry-run
-```
-
-### UI + API (Slice 1)
-
-```bash
-docker compose up api          # http://127.0.0.1:7420  token: dev-token-change-me
-docker compose up ui           # http://127.0.0.1:5173
-# In UI: connect with that token, add root /app/docker/fixtures (API container path)
-bash docker/test/api_smoke.sh  # or via compose network against http://api:7420
-```
-
-Golden corpora: `docker/fixtures/`. Delete safety: `docs/superpowers/specs/2026-11-07-dup-finder-delete-safety.md`.
+[MIT](LICENSE)

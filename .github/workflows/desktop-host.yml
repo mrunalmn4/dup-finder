@@ -1,12 +1,13 @@
-# Optional host GUI packaging + smoke — manual only (workflow_dispatch).
+# GUI-only re-run / debug path (manual workflow_dispatch).
+# Product releases: use release.yml on tag v* (build once → smoke → publish CLI + Tauri).
+#
 # Free-tier policy:
 #   - Never auto-runs (saves minutes)
-#   - Uses only standard GitHub-hosted runners (no larger / GPU / self-hosted)
-#   - macOS/Windows burn free minutes much faster on *private* repos — blocked unless
-#     the repo is public, or you explicitly choose "force-private" (you pay the minutes)
+#   - Standard GitHub-hosted runners only
+#   - Private repos: blocked unless force_private=true
 #
 # Smoke = Tauri bundle exists + platform binary looks real (Mach-O / PE).
-# Full GUI UAT still needs a human on a real desktop; this gates "we built installers".
+# Full interactive GUI UAT still needs a human on a real desktop.
 
 name: desktop-host
 
