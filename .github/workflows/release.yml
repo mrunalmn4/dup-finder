@@ -133,7 +133,7 @@ jobs:
         env:
           BIN: artifacts/release/dup-finder-linux-x86_64
         run: bash scripts/release/smoke-cli.sh
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.label }}
           path: artifacts/release/
@@ -200,7 +200,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/release/macos-bundle
           cp -R src-tauri/target/release/bundle/. artifacts/release/macos-bundle/
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: artifacts/release/
@@ -263,7 +263,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/release/windows-bundle
           cp -R src-tauri/target/release/bundle/. artifacts/release/windows-bundle/
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: artifacts/release/

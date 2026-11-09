@@ -91,7 +91,7 @@ jobs:
           BUNDLE_DIR: src-tauri/target/release/bundle
           RELEASE_DIR: src-tauri/target/release
         run: bash scripts/desktop/smoke-bundle.sh
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: dup-finder-macos
           path: src-tauri/target/release/bundle/
@@ -130,7 +130,7 @@ jobs:
           BUNDLE_DIR: src-tauri/target/release/bundle
           RELEASE_DIR: src-tauri/target/release
         run: bash scripts/desktop/smoke-bundle.sh
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: dup-finder-windows
           path: src-tauri/target/release/bundle/
