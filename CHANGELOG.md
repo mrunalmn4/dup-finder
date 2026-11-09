@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/mrunalmn4/dup-finder/compare/v0.1.1...v0.2.0) (2026-11-09)
+
+
+### Features
+
+* automate releases and harden workflows with HTML audit export ([29ac4e4](https://github.com/mrunalmn4/dup-finder/commit/29ac4e44e3c915cf566e1d7e4a7e9a732ebaec76))
+
 ## [Unreleased]
 
 ### Added
