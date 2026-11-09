@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Fixture check
         run: docker compose run --rm fixtures
       - name: Keep-rules contract
@@ -37,7 +37,7 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build release binary + checksums
         run: bash scripts/release/build-linux-docker.sh
       - name: SBOM (syft)
@@ -47,7 +47,7 @@ jobs:
       - name: Package rpm
         run: bash scripts/release/package-rpm.sh
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dup-finder-linux
           path: artifacts/release/

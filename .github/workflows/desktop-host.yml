@@ -60,7 +60,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -73,7 +73,7 @@ jobs:
         run: |
           cargo install tauri-cli --version "^2" --locked
           cargo tauri build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: dup-finder-macos
           path: src-tauri/target/release/bundle/
@@ -85,7 +85,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -98,7 +98,7 @@ jobs:
         run: |
           cargo install tauri-cli --version "^2" --locked
           cargo tauri build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: dup-finder-windows
           path: src-tauri/target/release/bundle/
